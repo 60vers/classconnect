@@ -1,55 +1,48 @@
+export const names = [
+  "Sparky",
+  "Nova",
+  "Orion",
+  "Astra",
+  "Echo",
+  "Indigo",
+  "Pixel",
+  "Rook",
+  "Kit",
+  "Milo",
+];
+
 export type ChatMessage = {
   id: string;
   content: string;
   user: string;
-  role: "user" | "assistant";
+  role: "user" | "system";
+  to?: string | null; // recipient username for DMs (optional)
+  createdAt?: number;
 };
 
-export type Message =
+export type ServerToClient =
+  | {
+      type: "users";
+      users: { id: string; name: string }[];
+    }
+  | {
+      type: "init";
+      messages: ChatMessage[];
+      users: { id: string; name: string }[];
+    }
   | {
       type: "add";
-      id: string;
-      content: string;
-      user: string;
-      role: "user" | "assistant";
+      message: ChatMessage;
     }
   | {
-      type: "update";
-      id: string;
-      content: string;
-      user: string;
-      role: "user" | "assistant";
-    }
-  | {
-      type: "all";
-      messages: ChatMessage[];
+      type: "dm";
+      message: ChatMessage;
+      toUserId: string;
     };
 
-export const names = [
-  "Alice",
-  "Bob",
-  "Charlie",
-  "David",
-  "Eve",
-  "Frank",
-  "Grace",
-  "Heidi",
-  "Ivan",
-  "Judy",
-  "Kevin",
-  "Linda",
-  "Mallory",
-  "Nancy",
-  "Oscar",
-  "Peggy",
-  "Quentin",
-  "Randy",
-  "Steve",
-  "Trent",
-  "Ursula",
-  "Victor",
-  "Walter",
-  "Xavier",
-  "Yvonne",
-  "Zoe",
-];
+export type ClientToServer =
+  | { type: "join"; name: string }
+  | { type: "setName"; name: string }
+  | { type: "add"; message: Omit<ChatMessage, "createdAt"> }
+  | { type: "dm"; message: Omit<ChatMessage, "createdAt">; toUserId: string }
+  | { type: "leave" };
