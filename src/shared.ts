@@ -1,48 +1,55 @@
-export const names = [
-  "Sparky",
-  "Nova",
-  "Orion",
-  "Astra",
-  "Echo",
-  "Indigo",
-  "Pixel",
-  "Rook",
-  "Kit",
-  "Milo",
-];
-
 export type ChatMessage = {
   id: string;
   content: string;
   user: string;
-  role: "user" | "system";
-  to?: string | null; // recipient username for DMs (optional)
-  createdAt?: number;
+  role: "user" | "assistant";
 };
 
-export type ServerToClient =
-  | {
-      type: "users";
-      users: { id: string; name: string }[];
-    }
-  | {
-      type: "init";
-      messages: ChatMessage[];
-      users: { id: string; name: string }[];
-    }
+export type Message =
   | {
       type: "add";
-      message: ChatMessage;
+      id: string;
+      content: string;
+      user: string;
+      role: "user" | "assistant";
     }
   | {
-      type: "dm";
-      message: ChatMessage;
-      toUserId: string;
+      type: "update";
+      id: string;
+      content: string;
+      user: string;
+      role: "user" | "assistant";
+    }
+  | {
+      type: "all";
+      messages: ChatMessage[];
     };
 
-export type ClientToServer =
-  | { type: "join"; name: string }
-  | { type: "setName"; name: string }
-  | { type: "add"; message: Omit<ChatMessage, "createdAt"> }
-  | { type: "dm"; message: Omit<ChatMessage, "createdAt">; toUserId: string }
-  | { type: "leave" };
+export const names = [
+  "Alice",
+  "Bob",
+  "Charlie",
+  "David",
+  "Eve",
+  "Frank",
+  "Grace",
+  "Heidi",
+  "Ivan",
+  "Judy",
+  "Kevin",
+  "Linda",
+  "Mallory",
+  "Nancy",
+  "Oscar",
+  "Peggy",
+  "Quentin",
+  "Randy",
+  "Steve",
+  "Trent",
+  "Ursula",
+  "Victor",
+  "Walter",
+  "Xavier",
+  "Yvonne",
+  "Zoe",
+];
