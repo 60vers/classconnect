@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { usePartySocket } from "partysocket/react";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -13,7 +13,21 @@ import { nanoid } from "nanoid";
 import { names, type ChatMessage, type Message } from "../shared";
 
 function App() {
-  const [name] = useState(names[Math.floor(Math.random() * names.length)]);
+  // pick a default name (from localStorage if set, otherwise random)
+  const [name, setName] = useState<string>(() => {
+    const stored = localStorage.getItem("cc:name");
+    if (stored) return stored;
+    return names[Math.floor(Math.random() * names.length)];
+  });
+
+  // editingName is the controlled input value for the name field
+  const [editingName, setEditingName] = useState<string>(name);
+
+  // persist name to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem("cc:name", name);
+  }, [name]);
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const { room } = useParams();
 
@@ -72,6 +86,34 @@ function App() {
 
   return (
     <div className="chat container">
+      {/* Name picker row */}
+      <form
+        className="row name-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const newName = editingName.trim() || name;
+          if (newName === name) {
+            alert(`Name unchanged: ${name}`);
+            return;
+          }
+          setName(newName);
+          alert(`Name set to ${newName}`);
+        }}
+      >
+        <input
+          type="text"
+          name="name"
+          className="ten columns my-input-text"
+          value={editingName}
+          onChange={(e) => setEditingName(e.target.value)}
+          placeholder="Enter your display name"
+          autoComplete="name"
+        />
+        <button type="submit" className="two columns">
+          Set Name
+        </button>
+      </form>
+
       {messages.map((message) => (
         <div key={message.id} className="row message">
           <div className="two columns user">{message.user}</div>
