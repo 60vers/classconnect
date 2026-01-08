@@ -13,50 +13,42 @@ import { nanoid } from "nanoid";
 import { names, type ChatMessage, type Message } from "../shared";
 
 /**
- * UI-updated index.tsx
+ * Fullscreen UI-updated index.tsx
  * - Only this file changed.
  * - Keeps existing backend integration via usePartySocket.
- * - Adds a clean, accessible layout and inline styles (no external CSS changes).
- * - Uses functional updates for message state to avoid stale closures.
+ * - Uses a fullscreen layout (no centered container) with a top header,
+ *   left message column and right info panel.
+ * - Solid colors only (no gradients).
  */
 
 /* ---------- Inline styles (kept here to avoid editing other files) ---------- */
 const S: Record<string, React.CSSProperties> = {
   app: {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
+    width: "100vw",
+    height: "100vh",
+    display: "grid",
+    gridTemplateRows: "56px 1fr",
+    gridTemplateColumns: "1fr 320px",
+    boxSizing: "border-box",
     background: "#f3f6fb",
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-    padding: 20,
-    boxSizing: "border-box",
-  },
-  container: {
-    width: "100%",
-    maxWidth: 1000,
-    background: "#fff",
-    borderRadius: 8,
-    boxShadow: "0 6px 20px rgba(16,24,40,0.08)",
-    overflow: "hidden",
-    display: "grid",
-    gridTemplateColumns: "1fr 300px",
+    color: "#0b1726",
     gap: 0,
   },
   header: {
     gridColumn: "1 / -1",
     display: "flex",
     alignItems: "center",
-    padding: "16px 18px",
+    padding: "12px 18px",
     borderBottom: "1px solid #eef3fb",
-    gap: 12,
     background: "#ffffff",
+    gap: 12,
   },
   logo: {
     width: 44,
     height: 44,
-    borderRadius: 8,
+    borderRadius: 6,
     background: "#2b7cff",
     color: "white",
     display: "flex",
@@ -64,23 +56,28 @@ const S: Record<string, React.CSSProperties> = {
     justifyContent: "center",
     fontWeight: 700,
     fontSize: 16,
+    flexShrink: 0,
   },
+
+  /* left main column */
   left: {
-    padding: 16,
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-    minHeight: 520,
-  },
-  messagesCard: {
-    flex: 1,
-    background: "#ffffff",
-    borderRadius: 6,
+    gridColumn: "1 / 2",
     padding: 12,
     display: "flex",
     flexDirection: "column",
     gap: 12,
+    minWidth: 0, // allow overflow handling
+    height: "100%",
+  },
+  messagesCard: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    background: "#ffffff",
+    borderRadius: 6,
+    padding: 12,
     boxShadow: "inset 0 1px 0 rgba(16,24,39,0.02)",
+    minHeight: 0, // important for flex overflow
   },
   messagesList: {
     flex: 1,
@@ -90,15 +87,39 @@ const S: Record<string, React.CSSProperties> = {
     gap: 10,
     padding: 6,
   },
+  composerRow: {
+    display: "flex",
+    gap: 8,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  input: {
+    flex: 1,
+    padding: "10px 12px",
+    borderRadius: 8,
+    border: "1px solid #e6eef8",
+    background: "#fbfdff",
+    outline: "none",
+  },
+  sendBtn: {
+    background: "#2b7cff",
+    color: "white",
+    border: "none",
+    padding: "10px 14px",
+    borderRadius: 8,
+    cursor: "pointer",
+  },
+
+  /* message visuals */
   messageRow: {
     display: "flex",
     gap: 10,
-    alignItems: "flex-end",
+    alignItems: "flex-start",
   },
   avatar: {
     width: 36,
     height: 36,
-    borderRadius: 8,
+    borderRadius: 6,
     background: "#e6eef8",
     display: "flex",
     alignItems: "center",
@@ -132,37 +153,22 @@ const S: Record<string, React.CSSProperties> = {
     marginTop: 6,
     textAlign: "right",
   },
-  composerRow: {
-    display: "flex",
-    gap: 8,
-    alignItems: "center",
-  },
-  input: {
-    flex: 1,
-    padding: "10px 12px",
-    borderRadius: 8,
-    border: "1px solid #e6eef8",
-    background: "#fbfdff",
-    outline: "none",
-  },
-  sendBtn: {
-    background: "#2b7cff",
-    color: "white",
-    border: "none",
-    padding: "10px 14px",
-    borderRadius: 8,
-    cursor: "pointer",
-  },
+
+  /* right sidebar */
   rightSidebar: {
-    borderLeft: "1px solid #eef3fb",
+    gridColumn: "2 / 3",
     padding: 16,
     background: "#fafbff",
+    borderLeft: "1px solid #eef3fb",
+    height: "100%",
+    overflow: "auto",
   },
   nameRow: {
     display: "flex",
     gap: 8,
     alignItems: "center",
     width: "100%",
+    marginBottom: 8,
   },
   nameInput: {
     flex: 1,
@@ -177,23 +183,30 @@ const S: Record<string, React.CSSProperties> = {
     background: "#ffffff",
     cursor: "pointer",
   },
+
   messagesEmpty: {
     color: "#6d7790",
     textAlign: "center",
     padding: 20,
   },
+
   roomLabel: {
     fontSize: 12,
     color: "#6d7790",
     marginTop: 8,
   },
+
   participantsList: {
     marginTop: 12,
     paddingLeft: 16,
   },
+
   smallNote: { fontSize: 13, color: "#7b8794", marginTop: 12 },
-  responsive: {
-    // will be applied in-line when window is narrow
+
+  /* Responsive: when narrow, stack columns (header remains top) */
+  narrow: {
+    gridTemplateColumns: "1fr",
+    gridTemplateRows: "56px 1fr auto",
   },
 };
 
@@ -320,157 +333,160 @@ function App() {
   }, []);
 
   return (
-    <div style={S.app}>
-      <div
-        style={{
-          ...S.container,
-          ...(isNarrow ? { gridTemplateColumns: "1fr" } : undefined),
-        }}
-        className="chat container"
-      >
-        <header style={S.header}>
-          <div style={S.logo}>CC</div>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 600 }}>ClassConnect</div>
-            <div style={{ fontSize: 13, color: "#6d7790" }}>Classroom chat</div>
+    <div
+      style={{
+        ...S.app,
+        ...(isNarrow ? S.narrow : undefined),
+      }}
+      className="chat-fullscreen"
+    >
+      <header style={S.header}>
+        <div style={S.logo}>CC</div>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>ClassConnect</div>
+          <div style={{ fontSize: 13, color: "#6d7790" }}>Classroom chat</div>
+        </div>
+
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ fontSize: 13, color: "#6d7790" }}>Room</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#102a43" }}>{room}</div>
+        </div>
+      </header>
+
+      {/* Left: messages and composer */}
+      <main style={S.left}>
+        {/* name picker (compact) */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const newName = editingName.trim() || name;
+            if (newName === name) {
+              return;
+            }
+            setName(newName);
+            setEditingName(newName);
+          }}
+          style={S.nameRow}
+        >
+          <input
+            aria-label="Display name"
+            style={S.nameInput}
+            value={editingName}
+            onChange={(e) => setEditingName(e.target.value)}
+            placeholder="Display name"
+            autoComplete="name"
+          />
+          <button type="submit" style={S.setNameBtn}>
+            Set
+          </button>
+        </form>
+
+        <section style={S.messagesCard} aria-live="polite">
+          <div style={S.messagesList} id="messages-list">
+            {messages.length === 0 ? (
+              <div style={S.messagesEmpty}>No messages yet — say hello 👋</div>
+            ) : (
+              messages.map((message) => {
+                const isMe = message.user === name;
+                return (
+                  <div
+                    key={message.id}
+                    style={{
+                      display: "flex",
+                      flexDirection: isMe ? "row-reverse" : "row",
+                      alignItems: "flex-start",
+                      gap: 10,
+                    }}
+                    className="message-row"
+                  >
+                    <div style={S.avatar} aria-hidden>
+                      {initialsFromName(message.user)}
+                    </div>
+
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: isMe ? "flex-end" : "flex-start",
+                        minWidth: 0,
+                      }}
+                    >
+                      <div
+                        style={{
+                          ...S.bubble,
+                          ...(isMe ? S.bubbleMe : S.bubbleThem),
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>
+                          {message.user}
+                        </div>
+                        <div style={{ whiteSpace: "pre-wrap" }}>{message.content}</div>
+                      </div>
+
+                      <div style={{ fontSize: 12, color: "#6d7790", marginTop: 6 }}>
+                        {message.role ? message.role : "user"}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
 
-          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-            <div style={{ fontSize: 13, color: "#6d7790" }}>Room</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#102a43" }}>{room}</div>
-          </div>
-        </header>
-
-        {/* Left: messages and composer */}
-        <main style={S.left}>
-          {/* name picker (compact, moved into main for quick access) */}
+          {/* composer */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              const newName = editingName.trim() || name;
-              if (newName === name) {
-                // no change
-                return;
-              }
-              setName(newName);
-              setEditingName(newName);
+              const target = e.currentTarget.elements.namedItem(
+                "content",
+              ) as HTMLInputElement | null;
+              if (!target) return;
+              const text = target.value.trim();
+              if (!text) return;
+              onSend(text);
+              target.value = "";
             }}
-            style={{ display: "flex", gap: 8, alignItems: "center" }}
+            style={S.composerRow}
           >
             <input
-              aria-label="Display name"
-              style={S.nameInput}
-              value={editingName}
-              onChange={(e) => setEditingName(e.target.value)}
-              placeholder="Display name"
-              autoComplete="name"
+              name="content"
+              style={S.input}
+              placeholder={placeholder}
+              autoComplete="off"
+              aria-label="Message"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  const form = e.currentTarget.form as HTMLFormElement | null;
+                  form?.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+                }
+              }}
             />
-            <button type="submit" style={S.setNameBtn}>
-              Set
+            <button type="submit" style={S.sendBtn}>
+              Send
             </button>
           </form>
+        </section>
+      </main>
 
-          <section style={S.messagesCard} aria-live="polite">
-            <div style={S.messagesList} id="messages-list">
-              {messages.length === 0 ? (
-                <div style={S.messagesEmpty}>No messages yet — say hello 👋</div>
-              ) : (
-                messages.map((message) => {
-                  const isMe = message.user === name;
-                  return (
-                    <div
-                      key={message.id}
-                      style={{
-                        display: "flex",
-                        flexDirection: isMe ? "row-reverse" : "row",
-                        alignItems: "flex-start",
-                        gap: 10,
-                      }}
-                      className="message-row"
-                    >
-                      <div style={S.avatar} aria-hidden>
-                        {initialsFromName(message.user)}
-                      </div>
+      {/* Right: info panel */}
+      <aside style={S.rightSidebar}>
+        <div style={{ fontWeight: 600 }}>Conversation</div>
+        <div style={S.roomLabel}>Room id</div>
+        <div style={{ fontWeight: 700 }}>{room}</div>
 
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start" }}>
-                        <div
-                          style={{
-                            ...S.bubble,
-                            ...(isMe ? S.bubbleMe : S.bubbleThem),
-                          }}
-                        >
-                          <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>
-                            {message.user}
-                          </div>
-                          <div style={{ whiteSpace: "pre-wrap" }}>{message.content}</div>
-                        </div>
+        <div style={S.smallNote}>Participants</div>
+        <ul style={S.participantsList}>
+          {/* Static list for now; integrate presence data from backend if available */}
+          <li>Alice</li>
+          <li>Bob</li>
+          <li>Carol</li>
+        </ul>
 
-                        <div style={{ fontSize: 12, color: "#6d7790", marginTop: 6 }}>
-                          {message.role ? message.role : "user"}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* composer */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const target = e.currentTarget.elements.namedItem(
-                  "content",
-                ) as HTMLInputElement | null;
-                if (!target) return;
-                const text = target.value.trim();
-                if (!text) return;
-                onSend(text);
-                target.value = "";
-              }}
-              style={S.composerRow}
-            >
-              <input
-                name="content"
-                style={S.input}
-                placeholder={placeholder}
-                autoComplete="off"
-                aria-label="Message"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    const target = e.currentTarget as HTMLInputElement;
-                    const form = target.form as HTMLFormElement | null;
-                    form?.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-                  }
-                }}
-              />
-              <button type="submit" style={S.sendBtn}>
-                Send
-              </button>
-            </form>
-          </section>
-        </main>
-
-        {/* Right: info panel */}
-        <aside style={S.rightSidebar}>
-          <div style={{ fontWeight: 600 }}>Conversation</div>
-          <div style={S.roomLabel}>Room id</div>
-          <div style={{ fontWeight: 700 }}>{room}</div>
-
-          <div style={S.smallNote}>Participants</div>
-          <ul style={S.participantsList}>
-            {/* This is a simple static list; if your backend provides presence, plug it in here */}
-            <li>Alice</li>
-            <li>Bob</li>
-            <li>Carol</li>
-          </ul>
-
-          <div style={S.smallNote}>
-            Tip: Press Enter to send. Your name is saved in localStorage.
-          </div>
-        </aside>
-      </div>
+        <div style={S.smallNote}>
+          Tip: Press Enter to send. Your name is saved in localStorage.
+        </div>
+      </aside>
     </div>
   );
 }
