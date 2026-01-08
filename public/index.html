@@ -1,31 +1,30 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <!-- Basic Page Needs
-  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
     <meta charset="utf-8" />
-    <title>ClassConnect!</title>
-    <meta name="description" content="" />
+    <title>ClassConnect</title>
+    <meta name="description" content="ClassConnect messaging" />
     <meta name="author" content="" />
-
-    <!-- Mobile Specific Metas
-  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <!-- FONT
-  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
-
-    <!-- CSS
-  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+    <!-- Vendor CSS -->
     <link rel="stylesheet" href="css/normalize.css" />
     <link rel="stylesheet" href="css/skeleton.css" />
+    <!-- App styles -->
     <link rel="stylesheet" href="styles.css" />
 
-    <!-- Favicon
-  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
     <link rel="icon" type="image/ico" href="favicon.ico" />
-    <script src="/dist/index.js" type="module"></script>
+    <!-- Intentionally no <script> tags here — index.tsx / your bundler should mount into #root -->
   </head>
+
   <body>
+    <!-- React will mount into this element (index.tsx -> createRoot(document.getElementById('root')) ) -->
+    <div id="root"></div>
+
+    <noscript>
+      <div style="padding:12px; text-align:center; background:#ffecec; color:#611a15;">
+        This app requires JavaScript. Please enable JavaScript in your browser.
+      </div>
+    </noscript>
   </body>
 </html>
