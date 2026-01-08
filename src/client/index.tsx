@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { usePartySocket } from "partysocket/react";
 import {
@@ -13,201 +13,229 @@ import { nanoid } from "nanoid";
 import { names, type ChatMessage, type Message } from "../shared";
 
 /**
- * Fullscreen UI-updated index.tsx
- * - Only this file changed.
- * - Keeps existing backend integration via usePartySocket.
- * - Uses a fullscreen layout (no centered container) with a top header,
- *   left message column and right info panel.
- * - Solid colors only (no gradients).
+ * Updated index.tsx
+ * - Fullscreen, Discord-like layout (center messages + right participants + left nav).
+ * - Dark / Light theme toggle (persisted in localStorage, respects system preference).
+ * - Participants presence support (presence messages handled and sent).
+ * - Messages persisted to localStorage per room as a fallback and for offline view.
+ * - UI improvements: avatars, timestamps, author labels, sticky header, keyboard send.
+ *
+ * Only this file changed.
  */
 
-/* ---------- Inline styles (kept here to avoid editing other files) ---------- */
-const S: Record<string, React.CSSProperties> = {
-  app: {
-    width: "100vw",
-    height: "100vh",
-    display: "grid",
-    gridTemplateRows: "56px 1fr",
-    gridTemplateColumns: "1fr 320px",
-    boxSizing: "border-box",
-    background: "#f3f6fb",
-    fontFamily:
-      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-    color: "#0b1726",
-    gap: 0,
-  },
-  header: {
-    gridColumn: "1 / -1",
-    display: "flex",
-    alignItems: "center",
-    padding: "12px 18px",
-    borderBottom: "1px solid #eef3fb",
-    background: "#ffffff",
-    gap: 12,
-  },
-  logo: {
-    width: 44,
-    height: 44,
-    borderRadius: 6,
-    background: "#2b7cff",
-    color: "white",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontWeight: 700,
-    fontSize: 16,
-    flexShrink: 0,
-  },
+/* ---------- Theme & style helpers ---------- */
+type Theme = "dark" | "light";
 
-  /* left main column */
-  left: {
-    gridColumn: "1 / 2",
-    padding: 12,
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-    minWidth: 0, // allow overflow handling
-    height: "100%",
-  },
-  messagesCard: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    background: "#ffffff",
-    borderRadius: 6,
-    padding: 12,
-    boxShadow: "inset 0 1px 0 rgba(16,24,39,0.02)",
-    minHeight: 0, // important for flex overflow
-  },
-  messagesList: {
-    flex: 1,
-    overflow: "auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-    padding: 6,
-  },
-  composerRow: {
-    display: "flex",
-    gap: 8,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  input: {
-    flex: 1,
-    padding: "10px 12px",
-    borderRadius: 8,
-    border: "1px solid #e6eef8",
-    background: "#fbfdff",
-    outline: "none",
-  },
-  sendBtn: {
-    background: "#2b7cff",
-    color: "white",
-    border: "none",
-    padding: "10px 14px",
-    borderRadius: 8,
-    cursor: "pointer",
-  },
+function getInitialTheme(): Theme {
+  try {
+    const saved = localStorage.getItem("cc:theme");
+    if (saved === "dark" || saved === "light") return saved;
+  } catch {}
+  if (typeof window !== "undefined" && window.matchMedia) {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return "light";
+}
 
-  /* message visuals */
-  messageRow: {
-    display: "flex",
-    gap: 10,
-    alignItems: "flex-start",
-  },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 6,
-    background: "#e6eef8",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#102a43",
-    fontWeight: 700,
-    fontSize: 13,
-    flexShrink: 0,
-  },
-  bubble: {
-    maxWidth: "78%",
-    padding: "10px 12px",
-    borderRadius: 10,
-    lineHeight: 1.3,
-    wordBreak: "break-word",
-  },
-  bubbleMe: {
-    background: "#2b7cff",
-    color: "white",
-    marginLeft: "auto",
-    borderBottomRightRadius: 4,
-  },
-  bubbleThem: {
-    background: "#f1f5fb",
-    color: "#0b1726",
-    borderBottomLeftRadius: 4,
-  },
-  metaSmall: {
-    fontSize: 11,
-    color: "#6d7790",
-    marginTop: 6,
-    textAlign: "right",
-  },
+function usePersistentState<T>(key: string, initial: T) {
+  const [state, setState] = useState<T>(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? (JSON.parse(raw) as T) : initial;
+    } catch {
+      return initial;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(state));
+    } catch {}
+  }, [key, state]);
+  return [state, setState] as const;
+}
 
-  /* right sidebar */
-  rightSidebar: {
-    gridColumn: "2 / 3",
-    padding: 16,
-    background: "#fafbff",
-    borderLeft: "1px solid #eef3fb",
-    height: "100%",
-    overflow: "auto",
-  },
-  nameRow: {
-    display: "flex",
-    gap: 8,
-    alignItems: "center",
-    width: "100%",
-    marginBottom: 8,
-  },
-  nameInput: {
-    flex: 1,
-    padding: "8px 10px",
-    borderRadius: 8,
-    border: "1px solid #e6eef8",
-  },
-  setNameBtn: {
-    padding: "8px 10px",
-    borderRadius: 8,
-    border: "1px solid #d9e6ff",
-    background: "#ffffff",
-    cursor: "pointer",
-  },
+/* ---------- Styles factory (colors depend on theme) ---------- */
+const styles = (theme: Theme) => {
+  const isDark = theme === "dark";
+  const bg = isDark ? "#0f1720" : "#f3f6fb";
+  const surface = isDark ? "#0b1220" : "#ffffff";
+  const panel = isDark ? "#07101a" : "#fafbff";
+  const text = isDark ? "#e6eef8" : "#0b1726";
+  const muted = isDark ? "#9aa6b2" : "#6d7790";
+  const accent = "#5865f2"; // discord-like purple
+  const messageMeBg = isDark ? accent : "#2b7cff";
+  const messageThemBg = isDark ? "#071722" : "#f1f5fb";
 
-  messagesEmpty: {
-    color: "#6d7790",
-    textAlign: "center",
-    padding: 20,
-  },
+  return {
+    app: {
+      width: "100vw",
+      height: "100vh",
+      display: "grid",
+      gridTemplateRows: "56px 1fr",
+      gridTemplateColumns: "72px 1fr 320px",
+      boxSizing: "border-box" as const,
+      background: bg,
+      color: text,
+      gap: 0,
+      overflow: "hidden",
+    },
+    leftNav: {
+      gridColumn: "1 / 2",
+      gridRow: "1 / -1",
+      background: isDark ? "#071025" : "#ffffff",
+      borderRight: `1px solid ${isDark ? "#0b1722" : "#eef3fb"}`,
+      display: "flex",
+      flexDirection: "column" as const,
+      alignItems: "center",
+      padding: "12px 8px",
+      gap: 12,
+    },
+    leftNavButton: {
+      width: 48,
+      height: 48,
+      borderRadius: 12,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      background: accent,
+      color: "white",
+      fontWeight: 700,
+      cursor: "pointer",
+      boxShadow: isDark ? "none" : "0 6px 16px rgba(88,101,242,0.12)",
+    },
+    header: {
+      gridColumn: "2 / 3",
+      gridRow: "1 / 2",
+      display: "flex",
+      alignItems: "center",
+      padding: "12px 16px",
+      borderBottom: `1px solid ${isDark ? "#071622" : "#eef3fb"}`,
+      background: panel,
+      gap: 12,
+      zIndex: 20,
+    },
+    headerTitle: { fontSize: 16, fontWeight: 700 as const },
+    center: {
+      gridColumn: "2 / 3",
+      gridRow: "2 / -1",
+      padding: "12px",
+      display: "flex",
+      flexDirection: "column" as const,
+      minHeight: 0,
+      gap: 12,
+    },
+    messagesPanel: {
+      flex: 1,
+      display: "flex",
+      flexDirection: "column" as const,
+      background: surface,
+      borderRadius: 8,
+      boxShadow: isDark ? "inset 0 1px 0 rgba(255,255,255,0.02)" : "inset 0 1px 0 rgba(16,24,39,0.02)",
+      minHeight: 0, // important for children overflow
+      overflow: "hidden",
+    },
+    messagesList: {
+      flex: 1,
+      overflow: "auto",
+      padding: "16px",
+      display: "flex",
+      flexDirection: "column" as const,
+      gap: 12,
+    },
+    composer: {
+      borderTop: `1px solid ${isDark ? "#071622" : "#eef3fb"}`,
+      padding: 12,
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      background: panel,
+    },
+    input: {
+      flex: 1,
+      padding: "10px 12px",
+      borderRadius: 8,
+      border: `1px solid ${isDark ? "#0b1722" : "#e6eef8"}`,
+      background: isDark ? "#05101a" : "#fbfdff",
+      color: text,
+      outline: "none",
+    },
+    sendBtn: {
+      background: messageMeBg,
+      color: "white",
+      border: "none",
+      padding: "10px 14px",
+      borderRadius: 8,
+      cursor: "pointer",
+    },
+    rightSidebar: {
+      gridColumn: "3 / 4",
+      gridRow: "1 / -1",
+      padding: 16,
+      background: panel,
+      borderLeft: `1px solid ${isDark ? "#071622" : "#eef3fb"}`,
+      overflow: "auto",
+    },
+    avatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 8,
+      background: isDark ? "#0b1220" : "#e6eef8",
+      color: text,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontWeight: 700,
+      fontSize: 14,
+      flexShrink: 0,
+    },
+    bubbleMe: {
+      alignSelf: "flex-end",
+      background: messageMeBg,
+      color: "white",
+      padding: "10px 12px",
+      borderRadius: 10,
+      maxWidth: "78%",
+      wordBreak: "break-word" as const,
+    },
+    bubbleThem: {
+      alignSelf: "flex-start",
+      background: messageThemBg,
+      color: text,
+      padding: "10px 12px",
+      borderRadius: 10,
+      maxWidth: "78%",
+      wordBreak: "break-word" as const,
+    },
+    authorLine: { fontSize: 13, fontWeight: 700 as const, marginBottom: 6, color: text },
+    timeSmall: { fontSize: 11, color: muted, marginLeft: 8 },
+    participantsTitle: { fontWeight: 700 as const, marginBottom: 8 },
+    participantRow: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      padding: "8px 6px",
+      borderRadius: 6,
+      cursor: "pointer",
+    },
+    presenceDot: (status: "online" | "offline") => ({
+      width: 9,
+      height: 9,
+      borderRadius: 999,
+      background: status === "online" ? "#39d353" : muted,
+      flexShrink: 0,
+    }),
+    muted,
+    text,
+    accent,
+  };
+};
 
-  roomLabel: {
-    fontSize: 12,
-    color: "#6d7790",
-    marginTop: 8,
-  },
-
-  participantsList: {
-    marginTop: 12,
-    paddingLeft: 16,
-  },
-
-  smallNote: { fontSize: 13, color: "#7b8794", marginTop: 12 },
-
-  /* Responsive: when narrow, stack columns (header remains top) */
-  narrow: {
-    gridTemplateColumns: "1fr",
-    gridTemplateRows: "56px 1fr auto",
-  },
+/* ---------- Presence & participants types ---------- */
+type Participant = {
+  user: string;
+  status: "online" | "offline";
+  lastSeen?: string;
+  id?: string;
 };
 
 /* ---------------- Helper utilities ---------------- */
@@ -218,213 +246,328 @@ function initialsFromName(name: string) {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-/* ---------------- App component ---------------- */
-function App() {
-  // pick a default name (from localStorage if set, otherwise random)
-  const [name, setName] = useState<string>(() => {
+/* ---------------- Main App component ---------------- */
+function AppInner() {
+  const { room } = useParams<{ room: string }>();
+  const roomId = room ?? "main";
+
+  // name persisted
+  const [name, setName] = usePersistentState<string>("cc:name", () => {
     const stored = localStorage.getItem("cc:name");
     if (stored) return stored;
     return names[Math.floor(Math.random() * names.length)];
   });
+  const [editingName, setEditingName] = useState(name);
 
-  // editingName is the controlled input value for the name field
-  const [editingName, setEditingName] = useState<string>(name);
+  // theme
+  const [theme, setTheme] = usePersistentState<Theme>("cc:theme", getInitialTheme());
 
-  // persist name to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem("cc:name", name);
-  }, [name]);
+  // messages persisted per room
+  const messagesKey = `cc:messages:${roomId}`;
+  const [messages, setMessages] = usePersistentState<ChatMessage[]>(messagesKey, []);
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const { room } = useParams();
+  // participants persisted per room (simple fallback)
+  const participantsKey = `cc:participants:${roomId}`;
+  const [participants, setParticipants] = usePersistentState<Participant[]>(participantsKey, []);
 
-  // stable onMessage that uses functional updates to avoid stale closures
+  // local refs
+  const socketRef = useRef<any>(null);
+  const heartbeatRef = useRef<number | null>(null);
+
+  // computed styles for current theme
+  const S = useMemo(() => styles(theme), [theme]);
+
+  // handle incoming messages (stable)
   const handleIncoming = useCallback(
     (evt: MessageEvent) => {
       try {
-        const message = JSON.parse(evt.data as string) as Message;
-        if (message.type === "add") {
-          setMessages((prev) => {
-            const foundIndex = prev.findIndex((m) => m.id === message.id);
-            const newMsg: ChatMessage = {
-              id: message.id,
-              content: message.content,
-              user: message.user,
-              role: message.role,
-            };
-            if (foundIndex === -1) {
-              return [...prev, newMsg];
-            } else {
-              // replace the item at foundIndex
-              return prev
-                .slice(0, foundIndex)
-                .concat(newMsg)
-                .concat(prev.slice(foundIndex + 1));
-            }
-          });
-        } else if (message.type === "update") {
+        const msg = JSON.parse(evt.data as string) as Message;
+        if (!msg || typeof msg !== "object") return;
+
+        if (msg.type === "add") {
+          const newMsg: ChatMessage = {
+            id: msg.id,
+            content: msg.content,
+            user: msg.user,
+            role: msg.role,
+          };
+          setMessages((prev) => [...prev, newMsg]);
+        } else if (msg.type === "update") {
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === message.id
+              m.id === msg.id
                 ? {
-                    id: message.id,
-                    content: message.content,
-                    user: message.user,
-                    role: message.role,
+                    id: msg.id,
+                    content: msg.content,
+                    user: msg.user,
+                    role: msg.role,
                   }
                 : m,
             ),
           );
+        } else if (msg.type === "presence") {
+          // message: { type: 'presence', user, status, id? }
+          const p: Participant = { user: msg.user, status: msg.status || "online", lastSeen: msg.lastSeen, id: msg.id };
+          setParticipants((prev) => {
+            const found = prev.findIndex((x) => x.user === p.user);
+            if (found === -1) return [...prev, p];
+            const copy = prev.slice();
+            copy[found] = { ...copy[found], ...p };
+            return copy;
+          });
+        } else if (msg.type === "participants") {
+          // snapshot: { type: 'participants', participants: [...] }
+          const list = Array.isArray((msg as any).participants) ? (msg as any).participants : [];
+          const normalized = list.map((p: any) => ({
+            user: p.user,
+            status: p.status || "online",
+            lastSeen: p.lastSeen,
+            id: p.id,
+          })) as Participant[];
+          setParticipants(normalized);
         } else {
-          // full sync or initial state
-          const list = Array.isArray(message.messages) ? message.messages : [];
-          const normalized = list.map((m: any) => ({
-            id: m.id,
-            content: m.content,
-            user: m.user,
-            role: m.role,
-          })) as ChatMessage[];
-          setMessages(normalized);
+          // fallback: treat as text message event
+          const text = typeof evt.data === "string" ? evt.data : JSON.stringify(evt.data);
+          setMessages((prev) => [
+            ...prev,
+            { id: `sys-${Date.now()}`, content: String(text), user: "system", role: "system" },
+          ]);
         }
       } catch (err) {
         console.warn("Failed to parse incoming message", err);
       }
     },
-    [setMessages],
+    [setMessages, setParticipants],
   );
 
-  const socket = usePartySocket({
+  // attach socket via usePartySocket (this gives us a socket-like object)
+  const partySocket = usePartySocket({
     party: "chat",
-    room,
+    room: roomId,
     onMessage: handleIncoming,
   });
 
-  // handle sending message
-  const onSend = (content: string) => {
+  // keep a ref for sending
+  useEffect(() => {
+    socketRef.current = partySocket;
+  }, [partySocket]);
+
+  // presence: announce online on mount, offline on unload, heartbeat
+  useEffect(() => {
+    const sendPresence = (status: "online" | "offline") => {
+      const payload = {
+        type: "presence",
+        user: name,
+        status,
+        id: nanoid(6),
+        lastSeen: new Date().toISOString(),
+      } as any;
+      try {
+        socketRef.current?.send(JSON.stringify(payload));
+      } catch {
+        // ignore
+      }
+      // also update local participants state for instant feedback
+      setParticipants((prev) => {
+        const found = prev.findIndex((p) => p.user === name);
+        const p: Participant = { user: name, status, lastSeen: payload.lastSeen, id: payload.id };
+        if (found === -1) return [...prev, p];
+        const copy = prev.slice();
+        copy[found] = { ...copy[found], ...p };
+        return copy;
+      });
+    };
+
+    sendPresence("online");
+    // heartbeat
+    heartbeatRef.current = window.setInterval(() => sendPresence("online"), 30000);
+
+    const onUnload = () => {
+      sendPresence("offline");
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => {
+      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+      sendPresence("offline");
+      window.removeEventListener("beforeunload", onUnload);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, roomId]);
+
+  // save messages to localStorage when they change (usePersistentState already does it),
+  // but ensure we limit size to avoid unbounded growth
+  useEffect(() => {
+    // keep last 500 messages
+    if (messages.length > 500) {
+      const trimmed = messages.slice(messages.length - 500);
+      try {
+        localStorage.setItem(messagesKey, JSON.stringify(trimmed));
+      } catch {}
+    }
+    // scroll to bottom on new message
+    const el = document.getElementById("messages-list");
+    if (el) {
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
+
+  // helper to send a chat message (optimistic)
+  const sendChat = (content: string) => {
+    if (!content.trim()) return;
     const chatMessage: ChatMessage = {
       id: nanoid(8),
       content,
       user: name,
       role: "user",
     };
-    // optimistic UI update
-    setMessages((m) => [...m, chatMessage]);
-
-    socket.send(
-      JSON.stringify({
-        type: "add",
-        ...chatMessage,
-      } satisfies Message),
-    );
+    // optimistic
+    setMessages((prev) => [...prev, chatMessage]);
+    try {
+      socketRef.current?.send(
+        JSON.stringify({
+          type: "add",
+          ...chatMessage,
+        } satisfies Message),
+      );
+    } catch (err) {
+      console.warn("send failed", err);
+    }
   };
 
-  // Keep a memoized placeholder for input placeholder text
-  const placeholder = useMemo(() => `Hello ${name}! Type a message...`, [name]);
-
-  /* Basic responsive behavior: add single-column when small screens */
-  const [isNarrow, setIsNarrow] = useState<boolean>(false);
-  useEffect(() => {
-    function onResize() {
-      setIsNarrow(window.innerWidth < 900);
+  // name update handler
+  const applyName = (newName?: string) => {
+    const target = (newName ?? editingName).trim() || name;
+    if (target === name) {
+      setEditingName(target);
+      return;
     }
-    onResize();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+    setName(target);
+    setEditingName(target);
+    // announce presence with new name
+    try {
+      socketRef.current?.send(
+        JSON.stringify({ type: "presence", user: target, status: "online", id: nanoid(6), lastSeen: new Date().toISOString() }),
+      );
+    } catch {}
+  };
 
+  // UI local input refs
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // render
   return (
-    <div
-      style={{
-        ...S.app,
-        ...(isNarrow ? S.narrow : undefined),
-      }}
-      className="chat-fullscreen"
-    >
+    <div style={S.app} data-theme={theme} className="chat-fullscreen">
+      {/* left vertical nav (Discord-like small server icons) */}
+      <nav style={S.leftNav}>
+        <div style={S.leftNavButton} title="ClassConnect">
+          CC
+        </div>
+        <div
+          style={{ ...S.leftNavButton, width: 40, height: 40, background: "#2f3136" }}
+          title="Rooms"
+          onClick={() => {
+            // simple create new room behavior
+            const r = nanoid(8);
+            window.location.pathname = `/${r}`;
+          }}
+        >
+          +
+        </div>
+
+        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+          <button
+            aria-label="Toggle theme"
+            onClick={() => {
+              setTheme((t) => {
+                const next = t === "dark" ? "light" : "dark";
+                try {
+                  localStorage.setItem("cc:theme", next);
+                } catch {}
+                return next;
+              });
+            }}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              background: theme === "dark" ? "#202225" : "#f1f5fb",
+              color: theme === "dark" ? "white" : "black",
+              cursor: "pointer",
+              border: "none",
+            }}
+            title="Toggle dark / light mode"
+          >
+            {theme === "dark" ? "☀️" : "🌙"}
+          </button>
+        </div>
+      </nav>
+
+      {/* header */}
       <header style={S.header}>
-        <div style={S.logo}>CC</div>
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>ClassConnect</div>
-          <div style={{ fontSize: 13, color: "#6d7790" }}>Classroom chat</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 8, background: S.avatar.background, display: "flex", alignItems: "center", justifyContent: "center", color: S.text, fontWeight: 700 }}>
+            CC
+          </div>
+          <div>
+            <div style={S.headerTitle}>ClassConnect</div>
+            <div style={{ color: S.muted, fontSize: 13 }}>Room: <span style={{ fontWeight: 700 }}>{roomId}</span></div>
+          </div>
         </div>
 
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          <div style={{ fontSize: 13, color: "#6d7790" }}>Room</div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#102a43" }}>{room}</div>
+          <div style={{ color: S.muted, fontSize: 13 }}>{participants.filter(p => p.status === "online").length} online</div>
+          <div style={{ width: 1, height: 24, background: S.muted, opacity: 0.12 }} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              aria-label="Display name"
+              value={editingName}
+              onChange={(e) => setEditingName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applyName();
+              }}
+              style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${S.muted}`, background: "transparent", color: S.text }}
+            />
+            <button onClick={() => applyName()} style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer" }}>
+              Set
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Left: messages and composer */}
-      <main style={S.left}>
-        {/* name picker (compact) */}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const newName = editingName.trim() || name;
-            if (newName === name) {
-              return;
-            }
-            setName(newName);
-            setEditingName(newName);
-          }}
-          style={S.nameRow}
-        >
-          <input
-            aria-label="Display name"
-            style={S.nameInput}
-            value={editingName}
-            onChange={(e) => setEditingName(e.target.value)}
-            placeholder="Display name"
-            autoComplete="name"
-          />
-          <button type="submit" style={S.setNameBtn}>
-            Set
-          </button>
-        </form>
-
-        <section style={S.messagesCard} aria-live="polite">
-          <div style={S.messagesList} id="messages-list">
+      {/* center messages */}
+      <main style={S.center}>
+        <div style={S.messagesPanel}>
+          <div id="messages-list" style={S.messagesList} role="log" aria-live="polite">
             {messages.length === 0 ? (
-              <div style={S.messagesEmpty}>No messages yet — say hello 👋</div>
+              <div style={{ color: S.muted, textAlign: "center", padding: 20 }}>No messages yet — say hello 👋</div>
             ) : (
-              messages.map((message) => {
-                const isMe = message.user === name;
+              messages.map((m) => {
+                const isMe = m.user === name;
                 return (
                   <div
-                    key={message.id}
+                    key={m.id}
                     style={{
                       display: "flex",
                       flexDirection: isMe ? "row-reverse" : "row",
                       alignItems: "flex-start",
-                      gap: 10,
+                      gap: 12,
                     }}
-                    className="message-row"
                   >
                     <div style={S.avatar} aria-hidden>
-                      {initialsFromName(message.user)}
+                      {initialsFromName(m.user)}
                     </div>
-
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: isMe ? "flex-end" : "flex-start",
-                        minWidth: 0,
-                      }}
-                    >
-                      <div
-                        style={{
-                          ...S.bubble,
-                          ...(isMe ? S.bubbleMe : S.bubbleThem),
-                        }}
-                      >
-                        <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>
-                          {message.user}
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                        <div style={S.authorLine}>{m.user}</div>
+                        <div style={S.timeSmall}>
+                          {m.role}&nbsp;•&nbsp;{typeof (m as any).created_at === "string" ? new Date((m as any).created_at).toLocaleTimeString() : ""}
                         </div>
-                        <div style={{ whiteSpace: "pre-wrap" }}>{message.content}</div>
                       </div>
-
-                      <div style={{ fontSize: 12, color: "#6d7790", marginTop: 6 }}>
-                        {message.role ? message.role : "user"}
+                      <div style={isMe ? S.bubbleMe : S.bubbleThem}>
+                        <div style={{ whiteSpace: "pre-wrap" }}>{m.content}</div>
                       </div>
                     </div>
                   </div>
@@ -437,67 +580,78 @@ function App() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              const target = e.currentTarget.elements.namedItem(
-                "content",
-              ) as HTMLInputElement | null;
-              if (!target) return;
-              const text = target.value.trim();
+              const form = e.currentTarget as HTMLFormElement;
+              const input = form.elements.namedItem("content") as HTMLInputElement | null;
+              if (!input) return;
+              const text = input.value.trim();
               if (!text) return;
-              onSend(text);
-              target.value = "";
+              sendChat(text);
+              input.value = "";
+              input.focus();
             }}
-            style={S.composerRow}
+            style={S.composer}
           >
-            <input
-              name="content"
-              style={S.input}
-              placeholder={placeholder}
-              autoComplete="off"
-              aria-label="Message"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  const form = e.currentTarget.form as HTMLFormElement | null;
-                  form?.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-                }
-              }}
-            />
-            <button type="submit" style={S.sendBtn}>
-              Send
-            </button>
+            <input name="content" ref={inputRef} style={S.input} placeholder={`Message #${roomId}`} autoComplete="off" />
+            <button type="submit" style={S.sendBtn}>Send</button>
           </form>
-        </section>
+        </div>
       </main>
 
-      {/* Right: info panel */}
+      {/* right participants */}
       <aside style={S.rightSidebar}>
-        <div style={{ fontWeight: 600 }}>Conversation</div>
-        <div style={S.roomLabel}>Room id</div>
-        <div style={{ fontWeight: 700 }}>{room}</div>
+        <div style={S.participantsTitle}>Participants</div>
+        <div style={{ color: S.muted, fontSize: 13, marginBottom: 8 }}>{participants.length} total</div>
 
-        <div style={S.smallNote}>Participants</div>
-        <ul style={S.participantsList}>
-          {/* Static list for now; integrate presence data from backend if available */}
-          <li>Alice</li>
-          <li>Bob</li>
-          <li>Carol</li>
-        </ul>
+        <div>
+          {participants.length === 0 ? (
+            <div style={{ color: S.muted }}>No participants yet</div>
+          ) : (
+            participants.map((p) => (
+              <div
+                key={p.user}
+                style={{
+                  ...S.participantRow,
+                  justifyContent: "space-between",
+                }}
+                onClick={() => {
+                  // quick interaction: autofill composer with @user
+                  const el = inputRef.current;
+                  if (el) {
+                    el.focus();
+                    el.value = `@${p.user} `;
+                  }
+                }}
+              >
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <div style={S.avatar}>{initialsFromName(p.user)}</div>
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    <div style={{ fontWeight: 700 }}>{p.user}</div>
+                    <div style={{ fontSize: 12, color: S.muted }}>{p.lastSeen ? new Date(p.lastSeen).toLocaleString() : p.status}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={S.presenceDot(p.status)} />
+                </div>
+              </div>
+            ))
+          )}
+        </div>
 
-        <div style={S.smallNote}>
-          Tip: Press Enter to send. Your name is saved in localStorage.
+        <div style={{ marginTop: 16, color: S.muted, fontSize: 13 }}>
+          Tip: Click a participant to mention them. Theme and name are saved locally.
         </div>
       </aside>
     </div>
   );
 }
 
-/* ---------------- Mounting + Router ---------------- */
+/* ---------------- Router + mount ---------------- */
 // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
     <Routes>
       <Route path="/" element={<Navigate to={`/${nanoid()}`} />} />
-      <Route path="/:room" element={<App />} />
+      <Route path="/:room" element={<AppInner />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   </BrowserRouter>,
