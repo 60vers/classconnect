@@ -10,21 +10,53 @@ import {
   useNavigate,
 } from "react-router";
 import { nanoid } from "nanoid";
-import { FiPlus, FiHome, FiUser, FiHash } from "react-icons/fi";
 
 import { names, type ChatMessage, type Message } from "../shared";
 
 /**
- * Changes requested:
- * - Fix messages rendering (avoid raw JSON showing in UI).
- * - Remove dark mode (keep light only).
- * - Persist "servers" (rooms) locally and show them in left nav.
- * - Improve UI (Discord-like) and use react-icons for icons.
+ * Lightweight, light-only UI for ClassConnect.
+ * - Removed dark mode entirely (light only).
+ * - No external icon library (inline SVG components used).
+ * - Servers (rooms) persisted to localStorage; add/remove/edit saved locally.
+ * - Messages rendering avoids dumping raw JSON — uses extractText().
+ * - Participants list is functional: presence messages update it; clicking a participant mentions them.
  *
- * Only this file changed.
+ * This file replaces src/client/index.tsx to avoid bundling errors when react-icons is missing.
  */
 
-/* ---------- Lightweight persistent state helper ---------- */
+/* ---------- Inline SVG icons (no external deps) ---------- */
+function HomeIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M3 11.5L12 4l9 7.5" stroke="#243444" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path>
+      <path d="M5 21V12h14v9" stroke="#243444" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path>
+    </svg>
+  );
+}
+function PlusIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M12 5v14M5 12h14" stroke="#ffffff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function UserIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="#243444" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path>
+      <path d="M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" stroke="#243444" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path>
+    </svg>
+  );
+}
+function HashIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M4 9h16M4 15h16M10 3v18M14 3v18" stroke="#243444" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path>
+    </svg>
+  );
+}
+
+/* ---------- Persistence helper ---------- */
 function usePersistentState<T>(key: string, initial: T | (() => T)) {
   const initializer = typeof initial === "function" ? (initial as () => T) : () => initial;
   const [state, setState] = useState<T>(() => {
@@ -50,7 +82,7 @@ const L = {
     height: "100vh",
     display: "grid",
     gridTemplateRows: "56px 1fr",
-    gridTemplateColumns: "72px 1fr 320px",
+    gridTemplateColumns: "72px 1fr 300px",
     boxSizing: "border-box" as const,
     background: "#f6f8fb",
     color: "#0b1726",
@@ -207,7 +239,7 @@ const L = {
   }),
 };
 
-/* ---------- Presence & participants types ---------- */
+/* ---------- Participant type ---------- */
 type Participant = {
   user: string;
   status: "online" | "offline";
@@ -215,42 +247,24 @@ type Participant = {
   id?: string;
 };
 
-/* ---------------- Helpers ---------------- */
-function initialsFromName(name: string) {
-  if (!name) return "U";
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
-/**
- * Safely extract a human-friendly string from message content.
- * - If content is a string, return it.
- * - If content looks like JSON (object/array), try to extract a common field:
- *   content.text | content.message | content.content | first string-valued property
- * - Fallback to JSON.stringify with truncation.
- */
+/* ---------- Safe message extractor ---------- */
 function extractText(content: any): string {
   if (content == null) return "";
   if (typeof content === "string") return content;
   if (typeof content === "number" || typeof content === "boolean") return String(content);
-  // object / array
   try {
     if (Array.isArray(content)) {
-      // try to join string items
       const strings = content.filter((x) => typeof x === "string");
       if (strings.length) return strings.join(" ");
     } else if (typeof content === "object") {
       if (typeof content.text === "string") return content.text;
       if (typeof content.message === "string") return content.message;
       if (typeof content.content === "string") return content.content;
-      // pick first string property
       for (const k of Object.keys(content)) {
         const v = (content as any)[k];
         if (typeof v === "string") return v;
       }
     }
-    // fallback: stringify but keep it short
     const s = JSON.stringify(content);
     return s.length > 300 ? s.slice(0, 300) + "… (truncated JSON)" : s;
   } catch {
@@ -258,13 +272,13 @@ function extractText(content: any): string {
   }
 }
 
-/* ---------------- App (per-room) ---------------- */
+/* ---------- Per-room app ---------- */
 function AppInner() {
   const { room } = useParams<{ room: string }>();
   const roomId = room ?? "main";
   const navigate = useNavigate();
 
-  // name persisted
+  // persisted user name
   const [name, setName] = usePersistentState<string>("cc:name", () => {
     const stored = localStorage.getItem("cc:name");
     if (stored) return stored;
@@ -276,27 +290,26 @@ function AppInner() {
   const messagesKey = `cc:messages:${roomId}`;
   const [messages, setMessages] = usePersistentState<ChatMessage[]>(messagesKey, []);
 
-  // participants persisted per room (simple fallback)
+  // participants persisted per room
   const participantsKey = `cc:participants:${roomId}`;
   const [participants, setParticipants] = usePersistentState<Participant[]>(participantsKey, []);
 
   // servers (rooms) saved locally
   const [servers, setServers] = usePersistentState<string[]>("cc:servers", () => {
-    // default: include current room on first run
-    const now = localStorage.getItem("cc:servers");
-    if (now) {
+    // include current room by default
+    const raw = localStorage.getItem("cc:servers");
+    if (raw) {
       try {
-        const parsed = JSON.parse(now) as string[];
+        const parsed = JSON.parse(raw) as string[];
         if (Array.isArray(parsed) && parsed.length) return parsed;
       } catch {}
     }
     return [roomId];
   });
 
-  // socket ref
+  // socket ref and attach party socket
   const socketRef = useRef<any>(null);
 
-  // attach usePartySocket
   const handleIncoming = useCallback(
     (evt: MessageEvent) => {
       try {
@@ -411,7 +424,7 @@ function AppInner() {
     }
   }, [messages]);
 
-  // send chat
+  // send message
   const sendChat = (content: string) => {
     if (!content.trim()) return;
     const chatMessage: ChatMessage = {
@@ -450,26 +463,34 @@ function AppInner() {
 
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  /* Servers (rooms) management */
+  /* Servers management (persisted) */
   const addServer = () => {
     const id = nanoid(8);
     setServers((prev) => {
       const next = Array.from(new Set([id, ...prev]));
+      localStorage.setItem("cc:servers", JSON.stringify(next));
       return next;
     });
-    // navigate to new room
     navigate(`/${id}`);
   };
 
   const removeServer = (id: string) => {
-    // don't remove current room (just in case)
     if (id === roomId) return;
-    setServers((prev) => prev.filter((s) => s !== id));
+    setServers((prev) => {
+      const next = prev.filter((s) => s !== id);
+      localStorage.setItem("cc:servers", JSON.stringify(next));
+      return next;
+    });
   };
 
   // ensure current room is present in servers list
   useEffect(() => {
-    setServers((prev) => (prev.includes(roomId) ? prev : [roomId, ...prev]));
+    setServers((prev) => {
+      if (prev.includes(roomId)) return prev;
+      const next = [roomId, ...prev];
+      localStorage.setItem("cc:servers", JSON.stringify(next));
+      return next;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
 
@@ -477,12 +498,8 @@ function AppInner() {
   return (
     <div style={L.app} className="chat-fullscreen">
       <nav style={L.leftNav}>
-        <button
-          title="Home"
-          onClick={() => navigate("/")}
-          style={L.serverButton(false)}
-        >
-          <FiHome size={18} />
+        <button title="Home" onClick={() => navigate("/")} style={L.serverButton(false)}>
+          <HomeIcon />
         </button>
 
         <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
@@ -490,14 +507,9 @@ function AppInner() {
             const active = s === roomId;
             return (
               <div key={s} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button
-                  onClick={() => navigate(`/${s}`)}
-                  title={`Room ${s}`}
-                  style={L.serverButton(active)}
-                >
-                  <FiHash size={18} />
+                <button onClick={() => navigate(`/${s}`)} title={`Room ${s}`} style={L.serverButton(active)}>
+                  <HashIcon />
                 </button>
-                {/* small remove button shown for non-active servers */}
                 {!active ? (
                   <button
                     onClick={() => removeServer(s)}
@@ -512,17 +524,13 @@ function AppInner() {
           })}
         </div>
 
-        <button
-          title="Create new room"
-          onClick={addServer}
-          style={{ ...L.serverButton(false), marginTop: 8, background: "#2f3136", color: "white" }}
-        >
-          <FiPlus size={18} />
+        <button title="Create new room" onClick={addServer} style={{ ...L.serverButton(false), marginTop: 8, background: "#2f3136", color: "white" }}>
+          <PlusIcon />
         </button>
 
         <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ width: 40, height: 40, borderRadius: 10, background: "#f1f5fb", display: "flex", alignItems: "center", justifyContent: "center", cursor: "default" }}>
-            <FiUser />
+            <UserIcon />
           </div>
         </div>
       </nav>
