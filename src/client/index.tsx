@@ -50,8 +50,8 @@ const UIVERSE_CSS = `
   background-color:transparent !important;
   border: none !important;
   color: #333 !important;
-  padding-left: 56px !important;
-  padding-bottom: 10px !important;
+  padding-left: 64px !important;
+  padding-top: 20px !important;
   text-align: center !important;
 }
 
