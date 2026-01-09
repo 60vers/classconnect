@@ -1,34 +1,24 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { usePartySocket } from "partysocket/react";
-import {
-  BrowserRouter,
-  Routes,
-  Route,
-  Navigate,
-  useNavigate,
-  useParams,
-} from "react-router";
+import { BrowserRouter, Routes, Route, Navigate, useParams, useNavigate } from "react-router";
 import { nanoid } from "nanoid";
 
 import { names, type ChatMessage, type Message } from "../shared";
 
 /**
- * Updated minimal fullscreen chat:
- * - No channels / no logo (bare minimum)
- * - Page background is #e8e8e8
- * - Bottom-centered minimal input matching the provided CSS/layout:
- *   left icons: camera, image, folder; placeholder centered; mic icon on right
- * - Image sending via file picker or paste (base64)
- * - Presence + optimistic sends + reconciliation with server echoes
+ * Minimal fullscreen chat:
+ * - No channels, no logo
+ * - Background #e8e8e8
+ * - Bottom centered input exactly using Cobp/Uiverse HTML/CSS (adapted)
+ * - Image sending (file picker or paste) as base64
+ * - Presence + optimistic sends + reconciliation
  *
- * Notes:
- * - All styles are inlined via the INPUT_CSS string (no external dependencies).
- * - This file is intended to replace src/client/index.tsx fully.
+ * If you still see alignment differences, clear cached CSS in the browser and reload (hard refresh).
  */
 
-/* ---------------- CSS (adapted to match the user's snippet and Image 4) ---------------- */
-const INPUT_CSS = `
+/* ---------------- CSS (adapted from your Uiverse snippet + small improvements) ---------------- */
+const CSS = `
 :root {
   --page-bg: #e8e8e8;
   --muted: #9aa0a6;
@@ -37,7 +27,7 @@ const INPUT_CSS = `
 }
 html,body,#root { height:100%; margin:0; background:var(--page-bg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
 
-/* overall layout: center messages + right participants */
+/* page layout: center messages + right participants */
 .fullscreen-grid {
   display: grid;
   grid-template-columns: 1fr 320px;
@@ -94,6 +84,7 @@ html,body,#root { height:100%; margin:0; background:var(--page-bg); font-family:
 .container-upload-files .upload-file { margin: 0 6px; padding: 2px; cursor: pointer; transition: all 0.18s; }
 .container-upload-files .upload-file:hover { color: #4c4c4c; transform: scale(1.08); }
 
+/* center placeholder visually, switch to left when focused for typing */
 .input-text {
   width: 100%;
   padding: 14px 56px;
@@ -107,12 +98,15 @@ html,body,#root { height:100%; margin:0; background:var(--page-bg); font-family:
   line-height: 18px;
   font-weight: 500;
   box-shadow: 0 6px 18px rgba(16,24,40,0.04);
-  text-align: left;
+  text-align: center; /* placeholder centered */
 }
-.input-text::placeholder { color: var(--muted); text-align: center; } /* placeholder centered visually */
+.input-text::placeholder { color: var(--muted); }
 
-.label-files,
-.label-voice {
+/* on focus, align user text left */
+.input-text:focus { text-align: left; }
+
+/* label positions */
+.label-files, .label-voice {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
@@ -126,13 +120,13 @@ html,body,#root { height:100%; margin:0; background:var(--page-bg); font-family:
   border: none;
   cursor: pointer;
 }
-.label-files { left: 100px; } /* sits on left of input area (icons area) */
-.label-voice { right: 12px; } /* mic icon on right */
+.label-files { left: 100px; } /* sits left */
+.label-voice { right: 12px; } /* mic icon right */
 
-/* small right column (participants) */
+/* right column (participants) */
 .right-column { border-left:1px solid rgba(16,24,40,0.04); padding:20px; overflow:auto; background: transparent; }
 
-/* small responsive tweak */
+/* small responsive */
 @media (max-width: 900px) {
   .input-container { width: 92%; }
   .input-text { padding-left: 120px; padding-right: 48px; }
@@ -155,16 +149,13 @@ function AppInner() {
   const navigate = useNavigate();
   const roomId = room ?? "general";
 
-  // name + client id
-  const [name, setName] = useState(() => {
-    try {
-      const v = localStorage.getItem("cc:name");
-      if (v) return v;
-    } catch {}
+  const [name] = useState(() => {
+    try { const v = localStorage.getItem("cc:name"); if (v) return v; } catch {}
     const n = names[Math.floor(Math.random() * names.length)];
     try { localStorage.setItem("cc:name", n); } catch {}
     return n;
   });
+
   const [clientId] = useState(() => {
     try { const v = localStorage.getItem("cc:clientId"); if (v) return v; } catch {}
     const id = nanoid(8);
@@ -175,12 +166,11 @@ function AppInner() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [focused, setFocused] = useState(true);
-  const [unread, setUnread] = useState(0);
 
   const socketRef = useRef<any>(null);
   const pendingRef = useRef<Map<string, any>>(new Map());
 
-  // load persisted room state
+  // load persisted
   useEffect(() => {
     try {
       const raw = localStorage.getItem(`cc:messages:${roomId}`);
@@ -199,7 +189,7 @@ function AppInner() {
     try { localStorage.setItem(`cc:participants:${roomId}`, JSON.stringify(participants)); } catch {}
   }, [participants, roomId]);
 
-  // reconcile server message
+  // reconcile incoming server messages
   const reconcile = useCallback((msg: Message) => {
     setMessages((prev) => {
       const idx = prev.findIndex((m) => m.id === msg.id);
@@ -223,7 +213,7 @@ function AppInner() {
     });
   }, []);
 
-  // incoming handler
+  // handle incoming socket messages
   const onMessage = useCallback((evt: MessageEvent) => {
     try {
       const data = JSON.parse(evt.data as string) as Message;
@@ -234,9 +224,7 @@ function AppInner() {
         setParticipants((prev) => {
           const idx = prev.findIndex((x) => x.user === p.user);
           if (idx === -1) return [...prev, p];
-          const copy = prev.slice();
-          copy[idx] = { ...copy[idx], ...p };
-          return copy;
+          const copy = prev.slice(); copy[idx] = { ...copy[idx], ...p }; return copy;
         });
         return;
       }
@@ -251,7 +239,7 @@ function AppInner() {
         reconcile(data);
         const mention = typeof data.content === "string" && data.content.includes(`@${name}`);
         if (!focused || mention) {
-          setUnread((u) => u + 1);
+          // increment unread by adding a small indicator -- UI minimal so we just keep messages flowing
           if (mention && "Notification" in window && Notification.permission === "granted") {
             new Notification(`Mention — ${data.user}`, { body: (data.content || "").slice(0, 140) });
           }
@@ -262,13 +250,12 @@ function AppInner() {
     }
   }, [name, reconcile, focused]);
 
-  // attach socket
+  // hook up party socket for room
   const partySocket = usePartySocket({
     party: "chat",
     room: roomId,
     onMessage,
     onOpen() {
-      // flush pending and announce presence
       pendingRef.current.forEach((payload) => {
         try { socketRef.current?.send(JSON.stringify(payload)); } catch {}
       });
@@ -295,15 +282,15 @@ function AppInner() {
     return () => { clearInterval(hb); try { socketRef.current?.send(JSON.stringify({ type: "presence", user: name, status: "offline", id: clientId, lastSeen: new Date().toISOString() })); } catch {} window.removeEventListener("beforeunload", onUnload); };
   }, [name, clientId]);
 
-  // focus/unread handling
+  // focus handling
   useEffect(() => {
-    const onFocus = () => { setFocused(true); setUnread(0); };
+    const onFocus = () => setFocused(true);
     const onBlur = () => setFocused(false);
     window.addEventListener("focus", onFocus); window.addEventListener("blur", onBlur);
     return () => { window.removeEventListener("focus", onFocus); window.removeEventListener("blur", onBlur); };
   }, []);
 
-  // send helper (text or file)
+  // send text/file
   const send = useCallback((opts: { text?: string; file?: File }) => {
     if (!opts.text && !opts.file) return;
     if (opts.file) {
@@ -324,7 +311,7 @@ function AppInner() {
     setMessages((prev) => [...prev, { ...payload, pending: true } as any]);
   }, [name]);
 
-  // paste to send image
+  // paste -> image
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       if (!e.clipboardData) return;
@@ -335,19 +322,20 @@ function AppInner() {
         if (file) send({ file });
       }
     };
-    window.addEventListener("paste", onPaste); return () => window.removeEventListener("paste", onPaste);
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
   }, [send]);
 
-  // request Notification permission
+  // request permission
   useEffect(() => { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {}); }, []);
 
-  // simple nav: switch room via URL (no channels UI)
+  // no channels UI — navigate by URL if needed
   const goto = useCallback((r: string) => navigate(`/${r}`), [navigate]);
 
+  // render
   return (
     <div>
-      {/* inject CSS */}
-      <style>{INPUT_CSS}</style>
+      <style>{CSS}</style>
 
       <div className="fullscreen-grid" role="application">
         {/* center */}
@@ -383,7 +371,7 @@ function AppInner() {
             })}
           </div>
 
-          {/* composer: bottom-centered minimal input */}
+          {/* composer */}
           <div className="composer-wrapper">
             <div className="input-container">
               <div className="container-ia-chat">
@@ -404,48 +392,30 @@ function AppInner() {
                 <input type="checkbox" name="input-files" id="input-files" className="input-files" style={{ display: "none" }} />
 
                 <div className="container-upload-files" aria-hidden>
-                  {/* camera */}
-                  <svg className="upload-file" xmlns="http://www.w3.org/2000/svg" width={20} height={20} viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" strokeWidth={2}>
-                      <circle cx={12} cy={13} r={3} />
-                      <path d="M9.778 21h4.444c3.121 0 4.682 0 5.803-.735a4.4 4.4 0 0 0 1.226-1.204c.749-1.1.749-2.633.749-5.697s0-4.597-.749-5.697a4.4 4.4 0 0 0-1.226-1.204c-.72-.473-1.622-.642-3.003-.702c-.659 0-1.226-.49-1.355-1.125A2.064 2.064 0 0 0 13.634 3h-3.268c-.988 0-1.839.685-2.033 1.636c-.129.635-.696 1.125-1.355 1.125c-1.38.06-2.282.23-3.003.702A4.4 4.4 0 0 0 2.75 7.667C2 8.767 2 10.299 2 13.364s0 4.596.749 5.697c.324.476.74.885 1.226 1.204C5.096 21 6.657 21 9.778 21Z" />
-                    </g>
+                  <svg className="upload-file" xmlns="http://www.w3.org/2000/svg" width={24} height={24} viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" strokeWidth={2}><circle cx={12} cy={13} r={3} /><path d="M9.778 21h4.444c3.121 0 4.682 0 5.803-.735a4.4 4.4 0 0 0 1.226-1.204c.749-1.1.749-2.633.749-5.697s0-4.597-.749-5.697a4.4 4.4 0 0 0-1.226-1.204c-.72-.473-1.622-.642-3.003-.702c-.659 0-1.226-.49-1.355-1.125A2.064 2.064 0 0 0 13.634 3h-3.268c-.988 0-1.839.685-2.033 1.636c-.129.635-.696 1.125-1.355 1.125c-1.38.06-2.282.23-3.003.702A4.4 4.4 0 0 0 2.75 7.667C2 8.767 2 10.299 2 13.364s0 4.596.749 5.697c.324.476.74.885 1.226 1.204C5.096 21 6.657 21 9.778 21Z" /></g>
                   </svg>
 
-                  {/* image */}
-                  <svg className="upload-file" xmlns="http://www.w3.org/2000/svg" width={20} height={20} viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}>
-                      <rect width={18} height={18} x={3} y={3} rx={2} ry={2} />
-                      <circle cx={9} cy={9} r={2} />
-                      <path d="m21 15l-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
-                    </g>
+                  <svg className="upload-file" xmlns="http://www.w3.org/2000/svg" width={24} height={24} viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}><rect width={18} height={18} x={3} y={3} rx={2} ry={2} /><circle cx={9} cy={9} r={2} /><path d="m21 15l-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></g>
                   </svg>
 
-                  {/* folder */}
-                  <svg className="upload-file" xmlns="http://www.w3.org/2000/svg" width={20} height={20} viewBox="0 0 24 24">
-                    <path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m6 14l1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
-                  </svg>
+                  <svg className="upload-file" xmlns="http://www.w3.org/2000/svg" width={24} height={24} viewBox="0 0 24 24">
+                    <path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m6 14l1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" /></svg>
                 </div>
 
-                {/* left visible attach label triggers hidden file input */}
                 <label htmlFor="input-files" className="label-files" onClick={() => {
                   const el = document.getElementById("hidden-file-input") as HTMLInputElement | null;
                   el?.click();
                 }}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width={20} height={20} viewBox="0 0 24 24">
-                    <path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14m-7-7v14" />
-                  </svg>
+                  <svg xmlns="http://www.w3.org/2000/svg" width={24} height={24} viewBox="0 0 24 24"><path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14m-7-7v14" /></svg>
                 </label>
 
-                {/* right mic icon */}
                 <label htmlFor="input-voice" className="label-voice" title="Voice (not implemented)">
-                  <svg className="icon-voice" xmlns="http://www.w3.org/2000/svg" width={18} height={18} viewBox="0 0 24 24">
-                    <path fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth={2} d="M12 4v16m4-13v10M8 7v10" />
-                  </svg>
+                  <svg className="icon-voice" xmlns="http://www.w3.org/2000/svg" width={24} height={24} viewBox="0 0 24 24"><path fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth={2} d="M12 4v16m4-13v10M8 7v10" /></svg>
                 </label>
               </div>
 
-              {/* hidden real file input */}
               <input id="hidden-file-input" type="file" accept="image/*" style={{ display: "none" }}
                 onChange={(e) => {
                   const f = e.target.files?.[0];
