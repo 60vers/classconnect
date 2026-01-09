@@ -243,12 +243,13 @@ function AppInner() {
   const navigate = useNavigate();
   const roomId = room ?? "general";
 
-  const [name] = useState(() => {
-    try { const v = localStorage.getItem("cc:name"); if (v) return v; } catch {}
-    const n = names[Math.floor(Math.random() * names.length)];
-    try { localStorage.setItem("cc:name", n); } catch {}
-    return n;
-  });
+  const [name, setName] = useState(() => {
+  try { const v = localStorage.getItem("cc:name"); if (v) return v; } catch {}
+  const n = names[Math.floor(Math.random() * names.length)];
+  try { localStorage.setItem("cc:name", n); } catch {}
+  return n;
+});
+
 
   const [clientId] = useState(() => {
     try { const v = localStorage.getItem("cc:clientId"); if (v) return v; } catch {}
@@ -467,7 +468,37 @@ function AppInner() {
               </div>
             ))}
           </div>
-         </div> <div style={{ marginTop: 12, fontSize: 12, color: "#9aa0a6" }}> Your name: <strong>{name}</strong> </div>
+         <div style={{ marginTop: 12, fontSize: 12, color: "#9aa0a6" }}>
+  Your name:{" "}
+  <input
+    type="text"
+    value={name}
+    onChange={(e) => {
+      const newName = e.target.value;
+      setName(newName); // update state
+      try { localStorage.setItem("cc:name", newName); } catch {}
+      try {
+        socketRef.current?.send(JSON.stringify({
+          type: "presence",
+          user: newName,
+          status: "online",
+          id: clientId,
+          lastSeen: new Date().toISOString(),
+        }));
+      } catch {}
+    }}
+    style={{
+      fontWeight: 700,
+      fontSize: 12,
+      border: "none",
+      borderRadius: 4,
+      padding: "2px 4px",
+      background: "transparent",
+      color: "#111827",
+      width: 80,
+    }}
+  />
+</div>
         </div>
       </div>
     </div>
