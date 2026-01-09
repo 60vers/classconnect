@@ -14,173 +14,160 @@ import { nanoid } from "nanoid";
 import { names, type ChatMessage, type Message } from "../shared";
 
 /*
-  Changes in this iteration (per your feedback):
-  - Input bar is fixed bottom-centered (so it always sits visually where you expect).
-  - Input has no borders, no shadow, fully transparent background (so it blends with page bg #e8e8e8).
-  - Left icons and right mic sit visually on top of the transparent input (left icons aligned, placeholder centered).
-  - On focus the typed text left-aligns (keeps the centered placeholder until focus).
-  - Removed any input borders/shadows and label backgrounds so "no borders" requirement is satisfied.
-  - Kept presence, image sending (file + paste), optimistic sends + server reconciliation.
-  - Increased messages-list bottom padding so messages don't get hidden under the fixed input.
+  Fixes made:
+  - Input alignment: the input wrapper now toggles a `.focused` class on focus/blur so CSS can animate icons and placeholder reliably.
+  - Placeholder centering -> left-align on focus with smooth animation.
+  - Clearer animation & color tweaks (page bg #e8e8e8, input white, muted icon color).
+  - Kept behaviour: image paste/upload, presence, optimistic sends + reconciliation, minimal layout.
 */
 
-const CSS = `
+/* ---------------- CSS injected (adapted from your Uiverse snippet, with focus toggling) ---------------- */
+const UIVERSE_CSS = `
 :root{
-  --page-bg: #e8e8e8;
-  --muted: #9aa0a6;
-  --icon: #9fa6ab;
-  --accent: #6c5ce7;
+  --page-bg:#e8e8e8;
+  --muted:#9aa0a6;
+  --icon:#9fa6ab;
+  --input-bg:#ffffff;
+  --accent:#6c5ce7;
 }
 html,body,#root{height:100%;margin:0;background:var(--page-bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
 .fullscreen-grid{display:grid;grid-template-columns:1fr 320px;height:100vh;width:100%;box-sizing:border-box}
 .center-column{display:flex;flex-direction:column;justify-content:flex-start;padding:28px;gap:12px;overflow:hidden}
-.messages-list{flex:1;overflow:auto;display:flex;flex-direction:column;gap:12px;padding-right:8px;padding-bottom:160px} /* extra bottom padding so input doesn't overlap messages */
+.messages-list{flex:1;overflow:auto;display:flex;flex-direction:column;gap:12px;padding-right:8px}
 .message-row{display:flex;gap:12px;align-items:flex-start}
 .avatar{width:36px;height:36px;border-radius:8px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;font-weight:700;color:#374151}
-.bubble{background:transparent;color:#111827;padding:10px 14px;border-radius:12px;max-width:80%;border:none}
-.bubble.me{background:transparent;color:#111827;align-self:flex-end}
+.bubble{background:var(--input-bg);color:#111827;padding:10px 14px;border-radius:12px;max-width:80%;border:1px solid rgba(16,24,40,0.03);box-shadow:0 6px 12px rgba(16,24,40,0.04)}
+.bubble.me{background:var(--accent);color:white;border:none;box-shadow:0 8px 20px rgba(108,92,231,0.08);align-self:flex-end}
+.composer-wrapper{display:flex;justify-content:center;padding:18px 0}
+.input-container{width:640px;display:flex;justify-content:center}
 .right-column{border-left:1px solid rgba(16,24,40,0.04);padding:20px;overflow:auto;background:transparent}
 .presence-dot{width:10px;height:10px;border-radius:999px}
 
-/* Fixed bottom-centered input wrapper */
-.fixed-input-wrap {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 22px;
-  width: min(720px, calc(100% - 48px));
-  pointer-events: auto;
-  z-index: 9999;
-  display: flex;
-  justify-content: center;
+/* input box + icons */
+.container-ia-chat{
+  position:relative;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:100%;
+  max-width:640px;
+  transition:all .18s ease;
 }
 
-/* input container (visually like the Uiverse component) */
-.container-ia-chat {
-  background: var(--page-bg);
-  border: 1px solid rgba(16,24,40,0.04);
-  border-radius: 999px;
+/* left icon group */
+.container-upload-files{
+  position:absolute;
+  left:18px;
+  display:flex;
+  gap:8px;
+  color:var(--icon);
+  transition:opacity .22s ease, transform .22s ease;
+  align-items:center;
+  pointer-events:auto;
+  transform-origin:left center;
+}
+.container-upload-files .upload-file{width:20px;height:20px;cursor:pointer;display:inline-block}
+.container-upload-files .upload-file:hover{color:#4c4c4c;transform:scale(1.06)}
+
+/* input */
+.input-text{
+  width:100%;
+  padding:14px 56px;
+  padding-left:120px; /* reserved space for left icons */
+  border-radius:999px;
+  border:none;
+  outline:none;
+  background:var(--input-bg);
+  color:#333;
+  font-size:15px;
+  line-height:18px;
+  font-weight:500;
+  box-shadow:0 6px 18px rgba(16,24,40,0.04);
+  text-align:center; /* placeholder centered */
+  transition: all .22s cubic-bezier(.2,.9,.3,1);
+}
+.input-text::placeholder{color:var(--muted);opacity:.95}
+.container-ia-chat.focused .input-text{
+  text-align:left;
+  padding-left:56px; /* bring typed text closer after focus */
 }
 
-/* left icons group */
-.container-upload-files {
-  position: absolute;
-  left: 18px;
-  display: flex;
-  gap: 10px;
-  color: var(--icon);
-  align-items: center;
-  pointer-events: auto;
+/* label-files appears when focused */
+.label-files{
+  position:absolute;
+  top:50%;
+  left:14px;
+  transform:translateY(-50%) translateX(-6px) scale(.98);
+  display:flex;
+  padding:8px;
+  color:var(--muted);
+  background:var(--input-bg);
+  border-radius:999px;
+  border:1px solid rgba(16,24,40,0.03);
+  cursor:pointer;
+  opacity:0;
+  visibility:hidden;
+  transition:opacity .22s ease, transform .22s ease;
+  box-shadow:0 4px 12px rgba(16,24,40,0.04);
 }
-.container-upload-files .upload-file { width:20px; height:20px; cursor:pointer; }
-.container-upload-files .upload-file:hover { color: #4c4c4c; transform: scale(1.06); }
-
-/* the input itself — TRANSPARENT and NO BORDER/SHADOW */
-.input-text {
-  width: 100%;
-  padding: 14px 56px;
-  padding-left: 120px; /* reserve left area for icons */
-  border-radius: 999px;
-  border: none;
-  outline: none;
-  background: transparent;        /* transparent - no box */
-  color: #666;                    /* slightly muted text */
-  font-size: 15px;
-  line-height: 18px;
-  font-weight: 500;
-  text-align: center;             /* placeholder visually centered until focus */
-  transition: all .18s ease;
+.container-ia-chat.focused .label-files{
+  opacity:1;
+  visibility:visible;
+  transform:translateY(-50%) translateX(0) scale(1);
 }
 
-/* placeholder color and opacity */
-.input-text::placeholder { color: var(--muted); opacity: 0.95; }
-
-/* on focus we left-align text and reduce left padding for typing comfort */
-.container-ia-chat.focused .input-text {
-  text-align: left;
-  padding-left: 56px;
+/* when focused, fade left icon group */
+.container-ia-chat.focused .container-upload-files{
+  opacity:0;
+  transform:translateX(-12px) scale(.98);
+  pointer-events:none;
 }
 
-/* label-files, voice positioning — make them transparent/no border */
-.label-files {
-  position: absolute;
-  top: 50%;
-  left: 12px;
-  transform: translateY(-50%);
-  display: flex;
-  padding: 6px;
-  color: var(--icon);
-  background: transparent; /* no background */
-  border-radius: 999px;
-  cursor: pointer;
-  opacity: 0; /* keep hidden until focused like original behavior */
-  visibility: hidden;
-  transition: opacity .18s ease, transform .18s ease;
+/* right mic */
+.label-voice{
+  position:absolute;
+  right:12px;
+  top:50%;
+  transform:translateY(-50%);
+  width:36px;height:36px;border-radius:999px;display:flex;align-items:center;justify-content:center;color:var(--icon);background:transparent;border:none;cursor:pointer;transition:transform .18s ease, color .18s ease;
 }
-.container-ia-chat.focused .label-files {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(-50%) translateX(0);
-}
-
-/* mic icon on right — transparent */
-.label-voice {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--icon);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-}
-.label-voice:hover { color: #444; transform: scale(1.04); }
-
-/* when input is focused, fade the left icon group slightly */
-.container-ia-chat.focused .container-upload-files { opacity: 0.16; transform: translateX(-6px); pointer-events: none; }
-
-/* small responsive tweak */
-@media (max-width: 640px) {
-  .input-text { padding-left: 96px; padding-right: 44px; }
-  .container-upload-files { left: 12px; gap: 8px; }
-  .fixed-input-wrap { bottom: 16px; width: calc(100% - 28px); }
-}
+.label-voice:hover{color:#444;transform:scale(1.04)}
 `;
 
-/* ---------------- helpers ---------------- */
-function initialsFromName(name: string) {
+/* ---------------- small helpers ---------------- */
+function initials(name: string) {
   if (!name) return "U";
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-/* ---------------- Input component (focus toggling + file handling) ---------------- */
-function InputComponent(props: { onSendText: (t: string) => void; onSendFile: (f: File) => void }) {
+/* ---------------- Input component (focus toggling) ---------------- */
+function InputComponent(props: { onSendText: (text: string) => void; onSendFile: (f: File) => void }) {
   const { onSendText, onSendFile } = props;
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
+  // focus/blur handlers toggle class on wrapper so CSS can animate sibling elements reliably
   useEffect(() => {
-    const inp = inputRef.current;
+    const input = inputRef.current;
     const wrap = wrapperRef.current;
-    if (!inp || !wrap) return;
+    if (!input || !wrap) return;
     const onFocus = () => wrap.classList.add("focused");
-    const onBlur = () => setTimeout(() => wrap.classList.remove("focused"), 80); // small delay to allow label clicks
-    inp.addEventListener("focus", onFocus);
-    inp.addEventListener("blur", onBlur);
+    const onBlur = () => {
+      // small delay so label-files click works
+      setTimeout(() => wrap.classList.remove("focused"), 90);
+    };
+    input.addEventListener("focus", onFocus);
+    input.addEventListener("blur", onBlur);
     return () => {
-      inp.removeEventListener("focus", onFocus);
-      inp.removeEventListener("blur", onBlur);
+      input.removeEventListener("focus", onFocus);
+      input.removeEventListener("blur", onBlur);
     };
   }, []);
 
+  // Enter key sends
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -193,11 +180,11 @@ function InputComponent(props: { onSendText: (t: string) => void; onSendFile: (f
   };
 
   return (
-    <div className="fixed-input-wrap" aria-hidden={false}>
-      <style>{CSS}</style>
+    <div>
+      <style>{UIVERSE_CSS}</style>
 
       <div className="container-ia-chat" ref={wrapperRef}>
-        <input type="checkbox" name="input-voice" id="input-voice" style={{ display: "none" }} />
+        <input type="checkbox" name="input-voice" id="input-voice" className="input-voice" style={{ display: "none" }} />
         <input
           ref={inputRef}
           type="text"
@@ -210,6 +197,8 @@ function InputComponent(props: { onSendText: (t: string) => void; onSendFile: (f
           autoComplete="off"
         />
 
+        <input type="checkbox" name="input-files" id="input-files" className="input-files" style={{ display: "none" }} />
+
         <div className="container-upload-files" aria-hidden>
           <svg className="upload-file" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeWidth={2}><circle cx={12} cy={13} r={3}/><path d="M9.778 21h4.444c3.121 0 4.682 0 5.803-.735a4.4 4.4 0 0 0 1.226-1.204c.749-1.1.749-2.633.749-5.697s0-4.597-.749-5.697a4.4 4.4 0 0 0-1.226-1.204c-.72-.473-1.622-.642-3.003-.702c-.659 0-1.226-.49-1.355-1.125A2.064 2.064 0 0 0 13.634 3h-3.268c-.988 0-1.839.685-2.033 1.636c-.129.635-.696 1.125-1.355 1.125c-1.38.06-2.282.23-3.003.702A4.4 4.4 0 0 0 2.75 7.667C2 8.767 2 10.299 2 13.364s0 4.596.749 5.697c.324.476.74.885 1.226 1.204C5.096 21 6.657 21 9.778 21Z"/></g></svg>
 
@@ -218,19 +207,21 @@ function InputComponent(props: { onSendText: (t: string) => void; onSendFile: (f
           <svg className="upload-file" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m6 14l1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>
         </div>
 
-        <label className="label-files" onClick={() => fileRef.current?.click()} title="Attach">
+        <label htmlFor="input-files" className="label-files" onClick={() => fileRef.current?.click()} title="Attach">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width={18} height={18}><path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14m-7-7v14"/></svg>
         </label>
 
-        <label className="label-voice" title="Voice (not implemented)">
+        <label htmlFor="input-voice" className="label-voice" title="Voice (not implemented)">
           <svg className="icon-voice" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width={18} height={18}><path fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth={2} d="M12 4v16m4-13v10M8 7v10"/></svg>
         </label>
 
-        <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => {
-          const f = e.currentTarget.files?.[0];
-          e.currentTarget.value = "";
-          if (f) props.onSendFile ? props.onSendFile(f) : onSendFile(f);
-        }} />
+        <input ref={fileRef} id="hidden-file-input" type="file" accept="image/*" style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.currentTarget.files?.[0];
+            e.currentTarget.value = "";
+            if (f) onSendFile(f);
+          }}
+        />
       </div>
     </div>
   );
@@ -426,7 +417,7 @@ function AppInner() {
               const time = m.created_at ? new Date(m.created_at).toLocaleTimeString() : (m.createdAt ? new Date(m.createdAt).toLocaleTimeString() : "");
               return (
                 <div key={m.id} className="message-row" style={{ flexDirection: isMe ? "row-reverse" as const : "row" as const }}>
-                  <div className="avatar" aria-hidden>{initialsFromName(m.user)}</div>
+                  <div className="avatar" aria-hidden>{initials(m.user)}</div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", minWidth: 0 }}>
                     <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
                       <div style={{ fontWeight: 700 }}>{m.user}</div>
@@ -444,7 +435,7 @@ function AppInner() {
           </div>
 
           <div className="composer-wrapper">
-            <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+            <div className="input-container">
               <InputComponent onSendText={(text) => send({ text })} onSendFile={(f) => send({ file: f })} />
             </div>
           </div>
@@ -456,7 +447,7 @@ function AppInner() {
             {participants.length === 0 ? <div style={{ color: "#9aa0a6" }}>No participants yet</div> : participants.map((p) => (
               <div key={p.user} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div className="avatar" aria-hidden>{initialsFromName(p.user)}</div>
+                  <div className="avatar" aria-hidden>{initials(p.user)}</div>
                   <div>
                     <div style={{ fontWeight: 700 }}>{p.user}</div>
                     <div style={{ fontSize: 12, color: "#9aa0a6" }}>{p.lastSeen ? new Date(p.lastSeen).toLocaleString() : p.status}</div>
