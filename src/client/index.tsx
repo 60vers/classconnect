@@ -13,104 +13,70 @@ import { nanoid } from "nanoid";
 
 import { names, type ChatMessage, type Message } from "../shared";
 
-/* ---------------- Types ---------------- */
+/**
+ * Changes in this version:
+ * - Removed "servers" feature entirely (left sidebar is now purely channels list).
+ * - Reworked left sidebar to closely match the look requested (rounded white panel,
+ *   grouped channels with clear spacing and corner radii).
+ * - Added image sending: choose an image file -> read as base64 data URL -> send it in message payload.
+ *   Messages that are images are rendered inline (auto-scaled).
+ * - Improved duplicate protection:
+ *   - New messages from server are ignored if an identical (user+content) message was recently added locally.
+ *   - Local optimistic sends are also supported but server messages are the source of truth.
+ * - Polished styling: corner radii, colors and spacing approximated from the example images.
+ *
+ * Notes:
+ * - I intentionally kept message persistence and presence features.
+ * - For image messages we send the full dataURL (base64). This is simple and works without server changes
+ *   if the server simply broadcasts the payload. If you want to avoid sending large base64 strings over the
+ *   wire, we can change to upload-to-storage + send URL flow (recommended for production).
+ */
+
+/* ---------------- Theme / Styles ---------------- */
 type Theme = "light" | "dark";
 
-type ServerItem = {
-  id: string;
-  label?: string;
-  type?: "server" | "dm";
-};
+const LEFT_PANEL_RADIUS = 26; // approximated from reference images
+const CARD_RADIUS = 12;
+const MAIN_BG = "#f3f4f6"; // page background
+const LEFT_PANEL_BG = "#ffffff";
+const MUTED = "#9ca3af";
+const TEXT = "#111827";
+const ACCENT = "#6c5ce7";
 
-type Participant = {
-  user: string;
-  status: "online" | "offline";
-  lastSeen?: string;
-  id?: string;
-};
-
-/* ---------------- persistent helper ---------------- */
-function usePersistentState<T>(key: string, initial: T | (() => T)) {
-  const initializer = typeof initial === "function" ? (initial as () => T) : () => initial;
-  const [state, setState] = useState<T>(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? (JSON.parse(raw) as T) : initializer();
-    } catch {
-      return initializer();
-    }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem(key, JSON.stringify(state));
-    } catch {}
-  }, [key, state]);
-  return [state, setState] as const;
-}
-
-/* ---------------- styles (sidebar like image + bottom nav) ---------------- */
 const styles = (theme: Theme) => {
   const isDark = theme === "dark";
-  const bg = isDark ? "#0b1220" : "#f5f6f8";
-  const sidebarBg = isDark ? "#07101a" : "#ffffff";
-  const muted = isDark ? "#9aa6b2" : "#9ca3af";
-  const text = isDark ? "#e6eef8" : "#111827";
-  const accent = "#6c5ce7";
-  const selectedBg = isDark ? "rgba(108,92,231,0.08)" : "#f3f4f6";
 
   return {
     app: {
       width: "100vw",
       height: "100vh",
       display: "grid",
-      gridTemplateColumns: "72px 300px 1fr 320px",
+      // left channels | center content | right profile
+      gridTemplateColumns: "300px 1fr 340px",
       gridTemplateRows: "72px 1fr",
       gap: 0,
-      background: bg,
-      color: text,
+      background: MAIN_BG,
+      color: TEXT,
       fontFamily:
         '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
       boxSizing: "border-box" as const,
       overflow: "hidden",
     },
-    /* very left server column */
-    serversCol: {
+
+    /* Left channels panel */
+    leftPanel: {
       gridColumn: "1 / 2",
       gridRow: "1 / -1",
-      padding: 12,
-      display: "flex",
-      flexDirection: "column" as const,
-      alignItems: "center",
-      gap: 12,
-      background: "transparent",
-    },
-    serverIcon: {
-      width: 48,
-      height: 48,
-      borderRadius: 12,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      fontWeight: 700,
-      cursor: "pointer",
-      border: "none",
-    },
-
-    /* left sidebar (channels list like image) */
-    leftPanel: {
-      gridColumn: "2 / 3",
-      gridRow: "1 / -1",
-      background: sidebarBg,
-      borderRight: `1px solid ${isDark ? "#0b1722" : "#eef2f7"}`,
-      padding: "18px",
+      background: LEFT_PANEL_BG,
+      borderRight: `1px solid rgba(17,24,39,0.04)`,
+      padding: "20px 18px",
       boxSizing: "border-box" as const,
       display: "flex",
       flexDirection: "column" as const,
-      gap: 14,
-      borderTopLeftRadius: 18,
-      borderBottomLeftRadius: 18,
-      position: "relative" as const,
-      overflow: "auto",
+      gap: 12,
+      borderTopLeftRadius: LEFT_PANEL_RADIUS,
+      borderBottomLeftRadius: LEFT_PANEL_RADIUS,
+      overflowY: "auto" as const,
     },
     brand: { display: "flex", alignItems: "center", gap: 12, paddingBottom: 6 },
     brandLogo: {
@@ -127,17 +93,19 @@ const styles = (theme: Theme) => {
     },
     brandTitle: { fontWeight: 800, fontSize: 18 },
 
-    groupLabel: { fontSize: 13, color: muted, marginTop: 6, marginBottom: 6 },
+    groupLabel: { fontSize: 13, color: MUTED, marginTop: 6, marginBottom: 6 },
     channelRow: {
       display: "flex",
       alignItems: "center",
       gap: 12,
-      padding: "8px 10px",
-      borderRadius: 10,
+      padding: "10px 12px",
+      borderRadius: 12,
       cursor: "pointer",
     },
     channelRowActive: {
-      background: selectedBg,
+      background: "#f3f4f6",
+      borderRadius: 14,
+      boxShadow: "inset 0 -1px 0 rgba(0,0,0,0.02)",
     },
     channelIcon: {
       width: 28,
@@ -146,25 +114,27 @@ const styles = (theme: Theme) => {
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      background: "#f3f4f6",
+      background: "#f7f7fb",
       flexShrink: 0,
+      fontSize: 14,
     },
 
-    /* center header + content */
+    /* header for center content */
     header: {
-      gridColumn: "3 / 4",
+      gridColumn: "2 / 3",
       gridRow: "1 / 2",
       display: "flex",
       alignItems: "center",
       padding: "18px",
-      borderBottom: `1px solid ${isDark ? "#071622" : "#eef2f7"}`,
+      borderBottom: `1px solid rgba(17,24,39,0.04)`,
       background: "transparent",
       gap: 12,
     },
-    headerTitle: { fontSize: 16, fontWeight: 700 },
+    headerTitle: { fontSize: 18, fontWeight: 800 },
 
+    /* main center area */
     center: {
-      gridColumn: "3 / 4",
+      gridColumn: "2 / 3",
       gridRow: "2 / -1",
       padding: "20px",
       display: "flex",
@@ -179,6 +149,7 @@ const styles = (theme: Theme) => {
       flexDirection: "column" as const,
       gap: 12,
       overflow: "hidden",
+      background: "transparent",
     },
     messagesList: {
       flex: 1,
@@ -186,96 +157,101 @@ const styles = (theme: Theme) => {
       display: "flex",
       flexDirection: "column" as const,
       gap: 12,
-      paddingRight: 8,
-      paddingLeft: 8,
+      padding: "8px 4px",
     },
 
-    composerWrap: {
-      borderTop: `1px solid ${isDark ? "#071622" : "#eef2f7"}`,
-      paddingTop: 12,
-      paddingBottom: 12,
+    /* message styles */
+    msgRow: {
+      display: "flex",
+      gap: 12,
+      alignItems: "flex-start",
     },
-    input: {
-      width: "100%",
-      padding: "12px 14px",
-      borderRadius: 12,
-      border: `1px solid rgba(17,24,39,0.06)`,
-      background: "#fff",
-      outline: "none",
-      fontSize: 14,
+    avatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 10,
+      background: "#f3f4f6",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontWeight: 700,
+      color: "#374151",
+      flexShrink: 0,
     },
-
-    /* right panel */
-    rightPanel: {
-      gridColumn: "4 / 5",
-      gridRow: "1 / -1",
-      padding: 20,
-      background: "#ffffff",
-      borderLeft: `1px solid ${isDark ? "#071622" : "#eef2f7"}`,
-      overflow: "auto",
-    },
-
     bubbleMe: {
       alignSelf: "flex-end",
-      background: accent,
+      background: ACCENT,
       color: "white",
       padding: "10px 14px",
-      borderRadius: 14,
+      borderRadius: 16,
       maxWidth: "70%",
       wordBreak: "break-word" as const,
     },
     bubbleThem: {
       alignSelf: "flex-start",
-      background: "#f7f7fb",
-      color: text,
+      background: "#fbfbfd",
+      color: TEXT,
       padding: "10px 14px",
       borderRadius: 12,
       maxWidth: "70%",
       wordBreak: "break-word" as const,
-      border: "1px solid #f1f3f5",
+      border: "1px solid rgba(17,24,39,0.03)",
     },
+    metaRow: { display: "flex", alignItems: "baseline", gap: 8 },
 
-    /* bottom nav that mimics the mobile bar in the image */
-    bottomNavWrap: {
-      position: "sticky" as const,
-      bottom: 0,
-      left: 0,
-      right: 0,
-      marginTop: 12,
+    /* composer */
+    composerWrap: {
       paddingTop: 12,
       paddingBottom: 12,
-      background: "transparent",
-      display: "flex",
-      justifyContent: "space-between",
-      gap: 10,
-    },
-    bottomNav: {
+      borderTop: `1px solid rgba(17,24,39,0.04)`,
       display: "flex",
       gap: 8,
       alignItems: "center",
-      width: "100%",
-      justifyContent: "space-around",
-      padding: "10px 8px",
-      borderRadius: 12,
       background: "transparent",
     },
-    navItem: {
-      display: "flex",
-      flexDirection: "column" as const,
-      alignItems: "center",
-      gap: 6,
-      color: muted,
+    input: {
+      flex: 1,
+      padding: "12px 14px",
+      borderRadius: 14,
+      border: `1px solid rgba(17,24,39,0.06)`,
+      background: "#ffffff",
+      outline: "none",
+      fontSize: 14,
+    },
+    fileButton: {
+      padding: "8px",
+      borderRadius: 10,
+      background: "#fff",
+      border: "1px solid rgba(17,24,39,0.06)",
       cursor: "pointer",
-      fontSize: 12,
     },
 
-    muted,
-    text,
-    accent,
+    /* right profile panel */
+    rightPanel: {
+      gridColumn: "3 / 4",
+      gridRow: "1 / -1",
+      padding: 20,
+      background: "#ffffff",
+      borderLeft: `1px solid rgba(17,24,39,0.04)`,
+      overflow: "auto",
+    },
+
+    imagePreview: {
+      maxWidth: "360px",
+      maxHeight: "360px",
+      borderRadius: 10,
+      objectFit: "cover" as const,
+      display: "block",
+    },
+
+    muted: MUTED,
+    text: TEXT,
+    accent: ACCENT,
+    CARD_RADIUS,
   };
 };
 
-/* ---------------- helpers ---------------- */
+/* ---------------- Utilities ---------------- */
 function initialsFromName(name: string) {
   if (!name) return "U";
   const parts = name.trim().split(/\s+/);
@@ -283,99 +259,119 @@ function initialsFromName(name: string) {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-/* ---------------- AppInner ---------------- */
+/* ---------------- Main App ---------------- */
 function AppInner() {
   const { room } = useParams<{ room: string }>();
   const navigate = useNavigate();
-  const roomId = room ?? "main";
+  const roomId = room ?? "general";
 
-  const [clientId] = usePersistentState<string>("cc:clientId", () => nanoid(8));
-
-  const [name, setName] = usePersistentState<string>("cc:name", () => {
-    const stored = localStorage.getItem("cc:name");
-    if (stored) return stored;
-    return names[Math.floor(Math.random() * names.length)];
+  // identity
+  const [name, setName] = useState(() => {
+    try {
+      const s = localStorage.getItem("cc:name");
+      if (s) return s;
+    } catch {}
+    const n = names[Math.floor(Math.random() * names.length)];
+    try {
+      localStorage.setItem("cc:name", n);
+    } catch {}
+    return n;
   });
   const [editingName, setEditingName] = useState(name);
 
+  // client id (kept for presence)
+  const [clientId] = useState(() => {
+    try {
+      const v = localStorage.getItem("cc:clientId");
+      if (v) return v;
+    } catch {}
+    const id = nanoid(8);
+    try {
+      localStorage.setItem("cc:clientId", id);
+    } catch {}
+    return id;
+  });
+
   const theme: Theme = "light";
 
+  // messages persisted per channel
   const messagesKey = `cc:messages:${roomId}`;
-  const [messages, setMessages] = usePersistentState<ChatMessage[]>(messagesKey, []);
-
-  const participantsKey = `cc:participants:${roomId}`;
-  const [participants, setParticipants] = usePersistentState<Participant[]>(participantsKey, []);
-
-  // servers persisted (no DM system anymore)
-  const [servers, setServers] = usePersistentState<ServerItem[]>("cc:servers", () => {
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
-      const raw = localStorage.getItem("cc:servers");
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      const arr = Array.isArray(parsed) ? parsed : [];
-      const normalized = arr
-        .map((item: any) => {
-          if (!item) return null;
-          if (typeof item === "string") {
-            const id = item.trim();
-            if (!id) return null;
-            return { id, label: id.slice(0, 6), type: "server" } as ServerItem;
-          }
-          if (typeof item === "object") {
-            const id = item.id ?? (typeof item.label === "string" ? item.label : null);
-            if (!id) return null;
-            const sid = String(id);
-            return { id: sid, label: item.label ?? sid.slice(0, 6), type: "server" } as ServerItem;
-          }
-          return null;
-        })
-        .filter(Boolean) as ServerItem[];
-      try {
-        localStorage.setItem("cc:servers", JSON.stringify(normalized));
-      } catch {}
-      return normalized;
-    } catch {
-      return [];
-    }
+      const raw = localStorage.getItem(messagesKey);
+      if (raw) return JSON.parse(raw) as ChatMessage[];
+    } catch {}
+    return [];
   });
 
   useEffect(() => {
-    if (!roomId) return;
-    const found = servers.find((s) => s && s.id === roomId);
-    if (!found) {
-      const item: ServerItem = {
-        id: roomId,
-        label: String(roomId).slice(0, 6),
-        type: "server",
-      };
-      setServers((prev) => {
-        if (prev.some((p) => p && p.id === item.id)) return prev;
-        return [...prev, item];
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId]);
+    try {
+      localStorage.setItem(messagesKey, JSON.stringify(messages));
+    } catch {}
+  }, [messagesKey, messages]);
 
+  // participants persisted per channel
+  const participantsKey = `cc:participants:${roomId}`;
+  const [participants, setParticipants] = useState<any[]>(() => {
+    try {
+      const raw = localStorage.getItem(participantsKey);
+      if (raw) return JSON.parse(raw) as any[];
+    } catch {}
+    return [];
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(participantsKey, JSON.stringify(participants));
+    } catch {}
+  }, [participantsKey, participants]);
+
+  // socket & refs
   const socketRef = useRef<any>(null);
   const heartbeatRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const S = useMemo(() => styles(theme), [theme]);
 
-  const addMessage = useCallback((m: ChatMessage) => {
-    if (!m || !m.id) return;
-    setMessages((prev) => {
-      if (prev.some((x) => x.id === m.id)) return prev;
-      return [...prev, m];
-    });
-  }, [setMessages]);
+  // dedupe helper: avoid adding server message if identical message recently added locally
+  const isDuplicate = useCallback(
+    (incoming: { id?: string; content?: string; user?: string }) => {
+      if (!incoming) return false;
+      // direct id check
+      if (incoming.id && messages.some((m) => m.id === incoming.id)) return true;
+      // loose content/user/time dedupe (helps when server returns different ids)
+      if (incoming.content && incoming.user) {
+        const now = Date.now();
+        for (let i = messages.length - 1; i >= 0 && i >= messages.length - 40; i--) {
+          const m = messages[i] as any;
+          try {
+            if (m.user === incoming.user && m.content === incoming.content) {
+              // if that local message was created within last 10s, treat as duplicate
+              const createdAt = (m as any).createdAt || 0;
+              if (now - createdAt < 10000) return true;
+            }
+          } catch {}
+        }
+      }
+      return false;
+    },
+    [messages],
+  );
 
-  const updateMessage = useCallback((m: ChatMessage) => {
-    setMessages((prev) => prev.map((x) => (x.id === m.id ? m : x)));
-  }, [setMessages]);
+  // add message from server (safe)
+  const addMessageFromServer = useCallback(
+    (m: ChatMessage) => {
+      if (!m || !m.id) return;
+      if (isDuplicate({ id: m.id, content: m.content, user: m.user })) return;
+      setMessages((prev) => {
+        if (prev.some((x) => x.id === m.id)) return prev;
+        return [...prev, m];
+      });
+    },
+    [isDuplicate],
+  );
 
-  const visibleMessages = useMemo(() => messages.filter((m) => m.role !== "system"), [messages]);
-
+  // handle incoming socket messages
   const handleIncoming = useCallback(
     (evt: MessageEvent) => {
       try {
@@ -387,35 +383,27 @@ function AppInner() {
             id: msg.id,
             content: msg.content,
             user: msg.user,
-            role: msg.role,
-          };
-          addMessage(newMsg);
+            role: msg.role ?? "user",
+            // try to preserve server timestamp if it sends one
+            ...(msg.created_at ? { created_at: msg.created_at } : {}),
+            // local helper
+            createdAt: Date.now(),
+          } as any;
+          addMessageFromServer(newMsg);
         } else if (msg.type === "update") {
-          const updated: ChatMessage = {
-            id: msg.id,
-            content: msg.content,
-            user: msg.user,
-            role: msg.role,
-          };
-          updateMessage(updated);
+          setMessages((prev) => prev.map((x) => (x.id === msg.id ? { ...x, content: msg.content, user: msg.user } : x)));
         } else if (msg.type === "presence") {
-          const p: Participant = { user: msg.user, status: msg.status || "online", lastSeen: msg.lastSeen, id: msg.id };
+          const p = { user: msg.user, status: msg.status || "online", lastSeen: msg.lastSeen, id: msg.id };
           setParticipants((prev) => {
-            const found = prev.findIndex((x) => x.user === p.user);
-            if (found === -1) return [...prev, p];
+            const idx = prev.findIndex((q) => q.user === p.user);
+            if (idx === -1) return [...prev, p];
             const copy = prev.slice();
-            copy[found] = { ...copy[found], ...p };
+            copy[idx] = { ...copy[idx], ...p };
             return copy;
           });
         } else if (msg.type === "participants") {
           const list = Array.isArray((msg as any).participants) ? (msg as any).participants : [];
-          const normalized = list.map((p: any) => ({
-            user: p.user,
-            status: p.status || "online",
-            lastSeen: p.lastSeen,
-            id: p.id,
-          })) as Participant[];
-          setParticipants(normalized);
+          setParticipants(list);
         } else {
           // ignore unknown/system messages
         }
@@ -423,9 +411,10 @@ function AppInner() {
         console.warn("Failed to parse incoming message", err);
       }
     },
-    [addMessage, updateMessage, setParticipants],
+    [addMessageFromServer],
   );
 
+  // attach socket via partySocket hook
   const partySocket = usePartySocket({
     party: "chat",
     room: roomId,
@@ -436,6 +425,7 @@ function AppInner() {
     socketRef.current = partySocket;
   }, [partySocket]);
 
+  // presence heartbeat
   useEffect(() => {
     const sendPresence = (status: "online" | "offline") => {
       const payload = {
@@ -449,11 +439,11 @@ function AppInner() {
         socketRef.current?.send(JSON.stringify(payload));
       } catch {}
       setParticipants((prev) => {
-        const found = prev.findIndex((p) => p.user === name);
-        const p: Participant = { user: name, status, lastSeen: payload.lastSeen, id: payload.id };
-        if (found === -1) return [...prev, p];
+        const idx = prev.findIndex((p) => p.user === name);
+        const p = { user: name, status, lastSeen: payload.lastSeen, id: payload.id };
+        if (idx === -1) return [...prev, p];
         const copy = prev.slice();
-        copy[found] = { ...copy[found], ...p };
+        copy[idx] = { ...copy[idx], ...p };
         return copy;
       });
     };
@@ -471,242 +461,176 @@ function AppInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, roomId, clientId]);
 
+  // scroll on new messages
   useEffect(() => {
     const el = document.getElementById("messages-list");
-    if (el) requestAnimationFrame(() => (el.scrollTop = el.scrollHeight));
-  }, [visibleMessages]);
+    if (el) {
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+    }
+  }, [messages]);
 
-  const sendChat = (content: string) => {
-    if (!content.trim()) return;
-    const chatMessage: ChatMessage = {
-      id: nanoid(12),
-      content,
+  // send text message or image
+  const sendChat = useCallback(async (opts: { text?: string; imageDataUrl?: string }) => {
+    const { text = "", imageDataUrl } = opts;
+    if (!text.trim() && !imageDataUrl) return;
+
+    // client generates an id so we can reference it if needed
+    const id = nanoid(12);
+    const payload: any = {
+      type: "add",
+      id,
       user: name,
       role: "user",
     };
-    addMessage(chatMessage); // optimistic (deduped)
+    if (imageDataUrl) {
+      payload.content = imageDataUrl; // data:image/...
+      payload.kind = "image";
+    } else {
+      payload.content = text;
+      payload.kind = "text";
+    }
+
+    // optimistic local add with timestamp (will be deduped if server repeats)
+    const optimistic: any = {
+      id,
+      content: payload.content,
+      user: name,
+      role: "user",
+      kind: payload.kind,
+      createdAt: Date.now(),
+      pending: true,
+    };
+    setMessages((prev) => [...prev, optimistic]);
+
     try {
-      socketRef.current?.send(
-        JSON.stringify({
-          type: "add",
-          ...chatMessage,
-        } satisfies Message),
-      );
+      socketRef.current?.send(JSON.stringify(payload));
     } catch (err) {
       console.warn("send failed", err);
     }
-  };
+  }, [name]);
 
-  const applyName = (newName?: string) => {
-    const target = (newName ?? editingName).trim() || name;
-    if (target === name) {
-      setEditingName(target);
-      return;
-    }
+  // image file input handler
+  const onSelectFile = useCallback((file?: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string; // data:...;base64,...
+      sendChat({ imageDataUrl: result });
+    };
+    reader.onerror = (err) => {
+      console.warn("failed reading file", err);
+    };
+    reader.readAsDataURL(file);
+  }, [sendChat]);
+
+  // handle paste of images (optional)
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (!e.clipboardData) return;
+      const items = Array.from(e.clipboardData.items || []);
+      const imageItem = items.find((it) => it.type.startsWith("image/"));
+      if (imageItem) {
+        const file = imageItem.getAsFile();
+        if (file) onSelectFile(file);
+      }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [onSelectFile]);
+
+  // name apply
+  const applyName = () => {
+    const target = (editingName || name).trim() || name;
     setName(target);
-    setEditingName(target);
     try {
-      socketRef.current?.send(
-        JSON.stringify({ type: "presence", user: target, status: "online", id: clientId, lastSeen: new Date().toISOString() }),
-      );
+      localStorage.setItem("cc:name", target);
+    } catch {}
+    try {
+      socketRef.current?.send(JSON.stringify({ type: "presence", user: target, status: "online", id: clientId, lastSeen: new Date().toISOString() }));
     } catch {}
   };
 
-  const addServer = (id: string, label?: string) => {
-    if (!id) return;
-    const sid = String(id);
-    setServers((prev) => {
-      if (prev.some((s) => s && s.id === sid)) return prev;
-      const item: ServerItem = { id: sid, label: label ?? sid.slice(0, 6), type: "server" };
-      return [...prev, item];
-    });
-  };
+  // channels list: example channels; each list item is a channel
+  const CHANNELS = [
+    { id: "paid-opportunities", label: "paid-opportunities", emoji: "💼" },
+    { id: "for-hire", label: "for-hire", emoji: "🚀" },
+    { id: "introductions", label: "introductions", emoji: "🌱" },
+    { id: "general", label: "general", emoji: "👀" },
+    { id: "design-discussions", label: "design-discussions", emoji: "🎨", badge: "3 New" },
+    { id: "professionals-hangout", label: "professionals-hangout", emoji: "💎" },
+    { id: "support-group", label: "support-group", emoji: "💖" },
+    { id: "design-challenges", label: "design-challenges", emoji: "🐰" },
+    { id: "ask-professionals", label: "ask-professionals", emoji: "👋" },
+    { id: "career-questions", label: "career-questions", emoji: "🏢" },
+  ];
 
-  const navigateToServer = (id: string) => {
-    if (!id) return;
-    addServer(id, id.slice(0, 6));
-    window.location.pathname = `/${id}`;
-  };
-
-  const serverIcons = useMemo(() => servers, [servers]);
-
-  /* ---------------- render ---------------- */
+  /* ---------------- Render ---------------- */
   return (
     <div style={S.app} data-theme={theme} className="chat-fullscreen">
-      {/* servers (left-most) */}
-      <div style={S.serversCol}>
-        <button
-          title="ClassConnect"
-          onClick={() => navigateToServer("home")}
-          style={{ ...S.serverIcon, background: "#6c5ce7", color: "white" }}
-        >
-          CC
-        </button>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {serverIcons.map((s) => {
-            const label = s?.label ?? s?.id ?? "S";
-            const isActive = s.id === roomId;
-            return (
-              <button
-                key={s.id}
-                title={label}
-                onClick={() => navigateToServer(s.id)}
-                style={{
-                  ...S.serverIcon,
-                  background: isActive ? "#6c5ce7" : "#eef2ff",
-                  color: isActive ? "white" : "#111827",
-                }}
-              >
-                {String(label).slice(0, 2).toUpperCase()}
-              </button>
-            );
-          })}
-        </div>
-
-        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8, width: "100%", alignItems: "center" }}>
-          <button
-            title="New room"
-            onClick={() => {
-              const r = nanoid(8);
-              addServer(r, r.slice(0, 6));
-              navigateToServer(r);
-            }}
-            style={{ ...S.serverIcon, width: 40, height: 40, borderRadius: 10, background: "#111827", color: "white" }}
-          >
-            +
-          </button>
-        </div>
-      </div>
-
-      {/* left sidebar: channels grouped like the mobile image */}
+      {/* Left channels panel */}
       <aside style={S.leftPanel}>
         <div style={S.brand}>
-          <div style={S.brandLogo}>B</div>
+          <div style={S.brandLogo}>DB</div>
           <div style={S.brandTitle}>Design Buddies</div>
         </div>
 
         <div>
           <div style={S.groupLabel}>Job Search</div>
-          <div
-            onClick={() => navigateToServer("paid-opportunities")}
-            style={{ ...S.channelRow }}
-          >
-            <div style={S.channelIcon}>💼</div>
-            <div style={{ fontWeight: 700 }}>paid-opportunities</div>
-          </div>
-          <div
-            onClick={() => navigateToServer("for-hire")}
-            style={{ ...S.channelRow }}
-          >
-            <div style={S.channelIcon}>🚀</div>
-            <div style={{ fontWeight: 700 }}>for-hire</div>
-          </div>
+          {CHANNELS.filter(c => ["paid-opportunities", "for-hire"].includes(c.id)).map((c) => (
+            <div
+              key={c.id}
+              onClick={() => navigate(`/${c.id}`)}
+              style={{ ...S.channelRow, ...(roomId === c.id ? S.channelRowActive : {}) }}
+            >
+              <div style={S.channelIcon}>{c.emoji}</div>
+              <div style={{ fontWeight: 700 }}>{c.label}</div>
+            </div>
+          ))}
         </div>
 
         <div>
           <div style={S.groupLabel}>General Discussion</div>
-          <div
-            onClick={() => navigateToServer("introductions")}
-            style={{ ...S.channelRow }}
-          >
-            <div style={S.channelIcon}>🌱</div>
-            <div>introductions</div>
-          </div>
-
-          <div
-            onClick={() => navigateToServer("general")}
-            style={{ ...S.channelRow, ...(roomId === "general" ? S.channelRowActive : {}) }}
-          >
-            <div style={S.channelIcon}>#</div>
-            <div style={{ fontWeight: 700 }}>general</div>
-          </div>
-
-          <div
-            onClick={() => navigateToServer("design-discussions")}
-            style={{ ...S.channelRow }}
-          >
-            <div style={S.channelIcon}>🎨</div>
-            <div style={{ fontWeight: 700 }}>design-discussions</div>
-            <div style={{ marginLeft: "auto", color: S.muted, fontSize: 12 }}>3 New</div>
-          </div>
-
-          <div
-            onClick={() => navigateToServer("professionals-hangout")}
-            style={{ ...S.channelRow }}
-          >
-            <div style={S.channelIcon}>💎</div>
-            <div>professionals-hangout</div>
-          </div>
-
-          <div
-            onClick={() => navigateToServer("support-group")}
-            style={{ ...S.channelRow }}
-          >
-            <div style={S.channelIcon}>💖</div>
-            <div>support-group</div>
-          </div>
+          {CHANNELS.filter(c => ["introductions","general","design-discussions","professionals-hangout","support-group"].includes(c.id)).map((c) => (
+            <div
+              key={c.id}
+              onClick={() => navigate(`/${c.id}`)}
+              style={{ ...S.channelRow, ...(roomId === c.id ? S.channelRowActive : {}) }}
+            >
+              <div style={S.channelIcon}>{c.emoji}</div>
+              <div style={{ fontWeight: roomId === c.id ? 700 : 400 }}>{c.label}</div>
+              {c.badge ? <div style={{ marginLeft: "auto", color: S.muted, fontSize: 12 }}>{c.badge}</div> : null}
+            </div>
+          ))}
         </div>
 
         <div>
           <div style={S.groupLabel}>Design Buddies Events</div>
-          <div
-            onClick={() => navigateToServer("design-challenges")}
-            style={{ ...S.channelRow }}
-          >
-            <div style={S.channelIcon}>🐰</div>
-            <div>design-challenges</div>
-          </div>
+          {CHANNELS.filter(c => c.id === "design-challenges").map(c => (
+            <div key={c.id} onClick={() => navigate(`/${c.id}`)} style={{ ...S.channelRow, ...(roomId === c.id ? S.channelRowActive : {}) }}>
+              <div style={S.channelIcon}>{c.emoji}</div>
+              <div>{c.label}</div>
+            </div>
+          ))}
         </div>
 
         <div>
           <div style={S.groupLabel}>Ask For Help</div>
-          <div
-            onClick={() => navigateToServer("ask-professionals")}
-            style={{ ...S.channelRow }}
-          >
-            <div style={S.channelIcon}>👋</div>
-            <div style={{ fontWeight: 700 }}>ask-professionals</div>
-          </div>
-
-          <div
-            onClick={() => navigateToServer("career-questions")}
-            style={{ ...S.channelRow }}
-          >
-            <div style={S.channelIcon}>🏢</div>
-            <div>career-questions</div>
-          </div>
+          {CHANNELS.filter(c => ["ask-professionals","career-questions"].includes(c.id)).map(c => (
+            <div key={c.id} onClick={() => navigate(`/${c.id}`)} style={{ ...S.channelRow, ...(roomId === c.id ? S.channelRowActive : {}) }}>
+              <div style={S.channelIcon}>{c.emoji}</div>
+              <div style={{ fontWeight: roomId === c.id ? 700 : 400 }}>{c.label}</div>
+            </div>
+          ))}
         </div>
 
-        {/* sticky bottom nav inside leftPanel to emulate the mobile image */}
-        <div style={{ marginTop: 12, marginBottom: 6 }} />
-
-        <div style={S.bottomNavWrap}>
-          <div style={S.bottomNav}>
-            <div style={S.navItem} onClick={() => navigateToServer("servers")}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: "#111827", color: "white", display: "flex", alignItems: "center", justifyContent: "center" }}>🏠</div>
-              <div>Servers</div>
-            </div>
-
-            <div style={S.navItem} onClick={() => navigateToServer("messages")}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>💬</div>
-              <div>Messages</div>
-            </div>
-
-            <div style={S.navItem} onClick={() => navigateToServer("notifications")}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>🔔</div>
-              <div>Notifications</div>
-            </div>
-
-            <div style={S.navItem} onClick={() => navigateToServer("you")}>
-              <div style={{ width: 32, height: 32, borderRadius: 999, background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center" }}>{initialsFromName(name)}</div>
-              <div>You</div>
-            </div>
-          </div>
+        <div style={{ marginTop: "auto", fontSize: 13, color: S.muted }}>
+          curated by Mobbin
         </div>
       </aside>
 
-      {/* header */}
+      {/* Header */}
       <header style={S.header}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 44, height: 44, borderRadius: 10, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>CC</div>
@@ -717,38 +641,35 @@ function AppInner() {
         </div>
       </header>
 
-      {/* center messages */}
+      {/* Center content (messages) */}
       <main style={S.center}>
         <div style={S.messagesPanel}>
           <div id="messages-list" style={S.messagesList} role="log" aria-live="polite">
-            {visibleMessages.length === 0 ? (
+            {messages.length === 0 ? (
               <div style={{ color: S.muted, textAlign: "center", padding: 20 }}>No messages yet — say hello 👋</div>
             ) : (
-              visibleMessages.map((m) => {
+              messages.map((m: any) => {
                 const isMe = m.user === name;
                 return (
-                  <div
-                    key={m.id}
-                    style={{
-                      display: "flex",
-                      flexDirection: isMe ? "row-reverse" : "row",
-                      alignItems: "flex-start",
-                      gap: 12,
-                    }}
-                  >
-                    <div style={{ width: 40, height: 40, borderRadius: 10, background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center" }} aria-hidden>
-                      {initialsFromName(m.user)}
-                    </div>
+                  <div key={m.id} style={{ ...S.msgRow, flexDirection: isMe ? "row-reverse" as const : "row" as const }}>
+                    <div style={S.avatar} aria-hidden>{initialsFromName(m.user)}</div>
 
                     <div style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                      <div style={S.metaRow}>
                         <div style={{ fontWeight: 700 }}>{m.user}</div>
-                        <div style={{ fontSize: 11, color: S.muted }}>
-                          {m.role}&nbsp;•&nbsp;{typeof (m as any).created_at === "string" ? new Date((m as any).created_at).toLocaleTimeString() : ""}
-                        </div>
+                        <div style={{ fontSize: 11, color: S.muted }}>{m.role || "user"}</div>
                       </div>
+
                       <div style={isMe ? S.bubbleMe : S.bubbleThem}>
-                        <div style={{ whiteSpace: "pre-wrap" }}>{m.content}</div>
+                        {/* If content is an image data URL, render it */}
+                        {typeof m.content === "string" && m.content.startsWith("data:image/") ? (
+                          // eslint-disable-next-line jsx-a11y/img-redundant-alt
+                          <img src={m.content} alt="image" style={S.imagePreview} />
+                        ) : (
+                          <div style={{ whiteSpace: "pre-wrap" }}>{m.content}</div>
+                        )}
+                        {/* small pending indicator for optimistic messages */}
+                        {m.pending ? <div style={{ fontSize: 11, color: S.muted, marginTop: 8 }}>Sending…</div> : null}
                       </div>
                     </div>
                   </div>
@@ -757,6 +678,7 @@ function AppInner() {
             )}
           </div>
 
+          {/* composer: text + file input */}
           <div style={S.composerWrap}>
             <form
               onSubmit={(e) => {
@@ -766,44 +688,72 @@ function AppInner() {
                 if (!input) return;
                 const text = input.value.trim();
                 if (!text) return;
-                sendChat(text);
+                sendChat({ text });
                 input.value = "";
                 input.focus();
               }}
+              style={{ display: "flex", gap: 8, width: "100%" }}
             >
               <input name="content" ref={inputRef} style={S.input} placeholder={`Message #${roomId}`} autoComplete="off" />
+              <button
+                type="button"
+                style={S.fileButton}
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach image"
+              >
+                📎
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const f = e.currentTarget.files?.[0];
+                  e.currentTarget.value = "";
+                  if (f) onSelectFile(f);
+                }}
+              />
             </form>
           </div>
         </div>
       </main>
 
-      {/* right profile */}
+      {/* Right profile */}
       <aside style={S.rightPanel}>
         <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
-          <div style={{ width: 56, height: 56, borderRadius: 12, background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{initialsFromName(name)}</div>
+          <div style={{ width: 64, height: 64, borderRadius: 12, background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{initialsFromName(name)}</div>
           <div>
             <div style={{ fontWeight: 800 }}>{name}</div>
             <div style={{ color: S.muted, fontSize: 13 }}>{participants.filter((p) => p.status === "online").length} online</div>
           </div>
         </div>
 
-        <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: 12 }}>
+        <div style={{ borderTop: "1px solid rgba(17,24,39,0.04)", paddingTop: 12 }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Details</div>
-          <div style={{ color: S.muted, fontSize: 13 }}>A clean area to show profile, notes, or channel metadata.</div>
+          <div style={{ color: S.muted, fontSize: 13 }}>Channel details and notes can go here.</div>
+
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 13, marginBottom: 6 }}>Display name</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={editingName} onChange={(e) => setEditingName(e.target.value)} style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(17,24,39,0.06)" }} />
+              <button onClick={applyName} style={{ padding: "8px 10px", borderRadius: 8, background: ACCENT, color: "white", border: "none", cursor: "pointer" }}>Set</button>
+            </div>
+          </div>
         </div>
       </aside>
     </div>
   );
 }
 
-/* ---------------- mount ---------------- */
+/* ---------------- Router + mount ---------------- */
 // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
     <Routes>
-      <Route path="/" element={<Navigate to={`/${nanoid()}`} />} />
+      <Route path="/" element={<Navigate to="/general" />} />
       <Route path="/:room" element={<AppInner />} />
-      <Route path="*" element={<Navigate to="/" />} />
+      <Route path="*" element={<Navigate to="/general" />} />
     </Routes>
   </BrowserRouter>,
 );
