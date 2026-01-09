@@ -29,7 +29,7 @@ type Participant = {
   id?: string;
 };
 
-/* ---------- Persistent state helper ---------- */
+/* ---------- Persistent state helper (defensive) ---------- */
 function usePersistentState<T>(key: string, initial: T | (() => T)) {
   const initializer = typeof initial === "function" ? (initial as () => T) : () => initial;
   const [state, setState] = useState<T>(() => {
@@ -48,36 +48,39 @@ function usePersistentState<T>(key: string, initial: T | (() => T)) {
   return [state, setState] as const;
 }
 
-/* ---------- Styles (light default) ---------- */
+/* ---------- Styles (light default, Discord-like layout) ---------- */
 const styles = (theme: Theme) => {
   const isDark = theme === "dark";
-  const bg = isDark ? "#0f1720" : "#f3f6fb";
+  const bg = isDark ? "#0f1720" : "#f5f6f8";
   const surface = isDark ? "#0b1220" : "#ffffff";
-  const panel = isDark ? "#07101a" : "#fafbff";
-  const text = isDark ? "#e6eef8" : "#0b1726";
-  const muted = isDark ? "#9aa6b2" : "#6d7790";
-  const accent = "#5865f2"; // discord-like
-  const messageMeBg = isDark ? accent : "#2b7cff";
-  const messageThemBg = isDark ? "#071722" : "#f1f5fb";
+  const panel = isDark ? "#07101a" : "#ffffff";
+  const text = isDark ? "#e6eef8" : "#111827";
+  const muted = isDark ? "#9aa6b2" : "#6b7280";
+  const accent = "#6c5ce7"; // purple-ish discord-like
+  const messageMeBg = accent;
+  const messageThemBg = isDark ? "#0e1720" : "#f3f4f6";
 
   return {
     app: {
       width: "100vw",
       height: "100vh",
       display: "grid",
-      gridTemplateRows: "56px 1fr",
-      gridTemplateColumns: "72px 1fr 320px",
+      // left nav | conversations | messages | right panel
+      gridTemplateColumns: "72px 300px 1fr 320px",
+      gridTemplateRows: "64px 1fr",
       boxSizing: "border-box" as const,
       background: bg,
       color: text,
       gap: 0,
       overflow: "hidden",
+      fontFamily:
+        '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
     },
     leftNav: {
       gridColumn: "1 / 2",
       gridRow: "1 / -1",
-      background: isDark ? "#071025" : "#ffffff",
-      borderRight: `1px solid ${isDark ? "#0b1722" : "#eef3fb"}`,
+      background: isDark ? "#071025" : "#fff",
+      borderRight: `1px solid ${isDark ? "#0b1722" : "#e6e9ef"}`,
       display: "flex",
       flexDirection: "column" as const,
       alignItems: "center",
@@ -95,40 +98,67 @@ const styles = (theme: Theme) => {
       color: "white",
       fontWeight: 700,
       cursor: "pointer",
-      boxShadow: isDark ? "none" : "0 6px 16px rgba(88,101,242,0.12)",
+      boxShadow: "0 6px 16px rgba(108,92,231,0.12)",
     },
-    leftNavList: { display: "flex", flexDirection: "column", gap: 8 },
-    serverBtnSmall: {
+    convColumn: {
+      gridColumn: "2 / 3",
+      gridRow: "1 / -1",
+      borderRight: `1px solid ${isDark ? "#071622" : "#eef2f7"}`,
+      background: isDark ? "#05121a" : "#fbfdff",
+      padding: "12px",
+      overflow: "auto",
+      display: "flex",
+      flexDirection: "column" as const,
+      gap: 12,
+    },
+    convHeader: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 8,
+    },
+    convList: { display: "flex", flexDirection: "column" as const, gap: 8, overflow: "auto" },
+    convRow: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      padding: "8px",
+      borderRadius: 10,
+      cursor: "pointer",
+    },
+    convRowActive: {
+      background: "rgba(108,92,231,0.06)",
+    },
+    convAvatar: {
       width: 40,
       height: 40,
-      borderRadius: 10,
+      borderRadius: 8,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      background: "#e6eef8",
-      color: text,
-      cursor: "pointer",
-      border: "none",
+      fontWeight: 700,
+      color: "white",
+      background: "#9b8cff",
+      flexShrink: 0,
     },
-    serverActive: {
-      boxShadow: "0 0 0 3px rgba(88,101,242,0.12)",
-    },
+
     header: {
-      gridColumn: "2 / 3",
+      gridColumn: "3 / 4",
       gridRow: "1 / 2",
       display: "flex",
       alignItems: "center",
       padding: "12px 16px",
-      borderBottom: `1px solid ${isDark ? "#071622" : "#eef3fb"}`,
+      borderBottom: `1px solid ${isDark ? "#071622" : "#eef2f7"}`,
       background: panel,
       gap: 12,
       zIndex: 20,
     },
     headerTitle: { fontSize: 16, fontWeight: 700 as const },
+
     center: {
-      gridColumn: "2 / 3",
+      gridColumn: "3 / 4",
       gridRow: "2 / -1",
-      padding: "12px",
+      padding: "16px",
       display: "flex",
       flexDirection: "column" as const,
       minHeight: 0,
@@ -139,57 +169,59 @@ const styles = (theme: Theme) => {
       display: "flex",
       flexDirection: "column" as const,
       background: surface,
-      borderRadius: 8,
-      boxShadow: isDark ? "inset 0 1px 0 rgba(255,255,255,0.02)" : "inset 0 1px 0 rgba(16,24,39,0.02)",
+      borderRadius: 12,
+      boxShadow: "inset 0 1px 0 rgba(16,24,39,0.02)",
       minHeight: 0,
       overflow: "hidden",
+      padding: 12,
     },
     messagesList: {
       flex: 1,
       overflow: "auto",
-      padding: "16px",
+      padding: "8px 12px",
       display: "flex",
       flexDirection: "column" as const,
       gap: 12,
     },
     composer: {
-      borderTop: `1px solid ${isDark ? "#071622" : "#eef3fb"}`,
+      borderTop: `1px solid ${isDark ? "#071622" : "#eef2f7"}`,
       padding: 12,
       display: "flex",
       gap: 8,
       alignItems: "center",
-      background: panel,
+      background: "transparent",
     },
     input: {
       flex: 1,
-      padding: "10px 12px",
-      borderRadius: 8,
-      border: `1px solid ${isDark ? "#0b1722" : "#e6eef8"}`,
-      background: isDark ? "#05101a" : "#fbfdff",
+      padding: "12px 14px",
+      borderRadius: 14,
+      border: `2px solid rgba(108,92,231,0.18)`,
+      background: "#fff",
       color: text,
       outline: "none",
+      boxShadow: "none",
     },
     sendBtn: {
       background: messageMeBg,
       color: "white",
       border: "none",
       padding: "10px 14px",
-      borderRadius: 8,
+      borderRadius: 12,
       cursor: "pointer",
     },
     rightSidebar: {
-      gridColumn: "3 / 4",
+      gridColumn: "4 / 5",
       gridRow: "1 / -1",
-      padding: 16,
-      background: panel,
-      borderLeft: `1px solid ${isDark ? "#071622" : "#eef3fb"}`,
+      padding: 20,
+      background: "#fff",
+      borderLeft: `1px solid ${isDark ? "#071622" : "#eef2f7"}`,
       overflow: "auto",
     },
     avatar: {
-      width: 40,
-      height: 40,
-      borderRadius: 8,
-      background: isDark ? "#0b1220" : "#e6eef8",
+      width: 48,
+      height: 48,
+      borderRadius: 999,
+      background: "#ddd",
       color: text,
       display: "flex",
       alignItems: "center",
@@ -202,19 +234,21 @@ const styles = (theme: Theme) => {
       alignSelf: "flex-end",
       background: messageMeBg,
       color: "white",
-      padding: "10px 12px",
-      borderRadius: 10,
-      maxWidth: "78%",
+      padding: "12px 14px",
+      borderRadius: 16,
+      maxWidth: "72%",
       wordBreak: "break-word" as const,
+      boxShadow: "0 6px 18px rgba(108,92,231,0.08)",
     },
     bubbleThem: {
       alignSelf: "flex-start",
       background: messageThemBg,
       color: text,
-      padding: "10px 12px",
-      borderRadius: 10,
-      maxWidth: "78%",
+      padding: "10px 14px",
+      borderRadius: 12,
+      maxWidth: "72%",
       wordBreak: "break-word" as const,
+      border: "1px solid #eef2f7",
     },
     authorLine: { fontSize: 13, fontWeight: 700 as const, marginBottom: 6, color: text },
     timeSmall: { fontSize: 11, color: muted, marginLeft: 8 },
@@ -300,7 +334,6 @@ function AppInner() {
           return null;
         })
         .filter(Boolean) as ServerItem[];
-      // persist normalized form back (best-effort)
       try {
         localStorage.setItem("cc:servers", JSON.stringify(normalized));
       } catch {}
@@ -321,7 +354,6 @@ function AppInner() {
         type: roomId.startsWith("dm--") ? "dm" : "server",
       };
       setServers((prev) => {
-        // avoid duplicates in case of races
         if (prev.some((p) => p && p.id === item.id)) return prev;
         return [...prev, item];
       });
@@ -332,9 +364,24 @@ function AppInner() {
   // local refs
   const socketRef = useRef<any>(null);
   const heartbeatRef = useRef<number | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   // computed styles for current theme
   const S = useMemo(() => styles(theme), [theme]);
+
+  // helper: safely add message (dedupe by id)
+  const addMessage = useCallback((m: ChatMessage) => {
+    if (!m || !m.id) return;
+    setMessages((prev) => {
+      if (prev.some((x) => x.id === m.id)) return prev;
+      return [...prev, m];
+    });
+  }, [setMessages]);
+
+  // helper: update message (replace by id)
+  const updateMessage = useCallback((m: ChatMessage) => {
+    setMessages((prev) => prev.map((x) => (x.id === m.id ? m : x)));
+  }, [setMessages]);
 
   // visible messages: filter out system
   const visibleMessages = useMemo(() => messages.filter((m) => m.role !== "system"), [messages]);
@@ -353,20 +400,15 @@ function AppInner() {
             user: msg.user,
             role: msg.role,
           };
-          setMessages((prev) => [...prev, newMsg]);
+          addMessage(newMsg);
         } else if (msg.type === "update") {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === msg.id
-                ? {
-                    id: msg.id,
-                    content: msg.content,
-                    user: msg.user,
-                    role: msg.role,
-                  }
-                : m,
-            ),
-          );
+          const updated: ChatMessage = {
+            id: msg.id,
+            content: msg.content,
+            user: msg.user,
+            role: msg.role,
+          };
+          updateMessage(updated);
         } else if (msg.type === "presence") {
           const p: Participant = { user: msg.user, status: msg.status || "online", lastSeen: msg.lastSeen, id: msg.id };
           setParticipants((prev) => {
@@ -392,7 +434,7 @@ function AppInner() {
         console.warn("Failed to parse incoming message", err);
       }
     },
-    [setMessages, setParticipants],
+    [addMessage, updateMessage, setParticipants],
   );
 
   // attach socket via usePartySocket
@@ -454,16 +496,17 @@ function AppInner() {
     }
   }, [visibleMessages]);
 
-  // send chat
+  // send chat (optimistic + dedupe based on id)
   const sendChat = (content: string) => {
     if (!content.trim()) return;
     const chatMessage: ChatMessage = {
-      id: nanoid(8),
+      id: nanoid(12),
       content,
       user: name,
       role: "user",
     };
-    setMessages((prev) => [...prev, chatMessage]);
+    // optimistic add (dedupe prevents duplicate when server echo arrives)
+    addMessage(chatMessage);
     try {
       socketRef.current?.send(
         JSON.stringify({
@@ -491,8 +534,6 @@ function AppInner() {
     } catch {}
   };
 
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
   /* ---------- Server management ---------- */
   const addServer = (id: string, label?: string, type: ServerItem["type"] = "server") => {
     if (!id) return;
@@ -504,13 +545,8 @@ function AppInner() {
     });
   };
 
-  const removeServer = (id: string) => {
-    setServers((prev) => prev.filter((s) => s && s.id !== id));
-  };
-
   const navigateToServer = (id: string) => {
     if (!id) return;
-    // ensure persisted
     addServer(id, id.slice(0, 6), id.startsWith("dm--") ? "dm" : "server");
     window.location.pathname = `/${id}`;
   };
@@ -518,47 +554,28 @@ function AppInner() {
   /* ---------- DM utilities ---------- */
   const startDMWith = (p: Participant) => {
     if (!p) return;
-    // prefer participant.id if available fallback to sanitized name
     const otherId = p.id ?? `u:${p.user}`;
     const myId = clientId;
     const ids = [myId, otherId].sort();
     const dmId = `dm--${ids.join("--")}`;
-    // label the DM with the other user's name
     addServer(dmId, `DM ${p.user}`, "dm");
     navigateToServer(dmId);
   };
 
-  /* ---------- UI helpers ---------- */
-  const Sx = S;
+  /* ---------- Derived conversations (servers) ---------- */
+  const conversations = useMemo(() => {
+    return servers.map((s) => ({
+      ...s,
+      label: s?.label ?? (s?.id ? String(s.id).slice(0, 6) : "??"),
+    }));
+  }, [servers]);
 
+  /* ---------- Render ---------- */
   return (
-    <div style={styles(theme).app} data-theme={theme} className="chat-fullscreen">
-      <nav style={styles(theme).leftNav}>
-        <div style={styles(theme).leftNavButton} title="ClassConnect" onClick={() => navigateToServer("home")}>CC</div>
-
-        <div style={{ marginTop: 8, width: "100%", display: "flex", justifyContent: "center" }}>
-          <div style={styles(theme).leftNavList}>
-            {servers.map((s) => {
-              const sid = s?.id ?? "";
-              const label = s?.label ?? sid;
-              const isActive = sid === roomId;
-              return (
-                <button
-                  key={sid || Math.random().toString(36).slice(2, 9)}
-                  title={label ?? sid}
-                  onClick={() => sid && navigateToServer(sid)}
-                  style={{
-                    ...styles(theme).serverBtnSmall,
-                    ...(isActive ? styles(theme).serverActive : {}),
-                    background: s?.type === "dm" ? "#f1f5ff" : undefined,
-                  }}
-                >
-                  {label ? (label.slice ? label.slice(0, 2) : String(label).slice(0, 2)) : "??"}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+    <div style={S.app} data-theme={theme} className="chat-fullscreen">
+      {/* Left nav */}
+      <nav style={S.leftNav}>
+        <div style={S.leftNavButton} title="ClassConnect" onClick={() => navigateToServer("home")}>CC</div>
 
         <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8, width: "100%", alignItems: "center" }}>
           <button
@@ -568,7 +585,7 @@ function AppInner() {
               addServer(r, r.slice(0, 6), "server");
               navigateToServer(r);
             }}
-            style={{ ...styles(theme).leftNavButton, width: 40, height: 40, background: "#2f3136" }}
+            style={{ ...S.leftNavButton, width: 40, height: 40, background: "#2f3136" }}
             title="Create new room"
           >
             +
@@ -579,7 +596,6 @@ function AppInner() {
             onClick={() => {
               const id = window.prompt("Enter server / room id or URL (room id portion):");
               if (id) {
-                // sanitize simple ids
                 const sanitized = id.trim();
                 if (!sanitized) return;
                 addServer(sanitized, sanitized.slice(0, 6), sanitized.startsWith("dm--") ? "dm" : "server");
@@ -592,7 +608,7 @@ function AppInner() {
               borderRadius: 10,
               marginTop: 6,
               background: "#ffffff",
-              border: "1px solid #eef3fb",
+              border: "1px solid #eef2f7",
               cursor: "pointer",
             }}
             title="Add server"
@@ -602,22 +618,55 @@ function AppInner() {
         </div>
       </nav>
 
-      <header style={styles(theme).header}>
+      {/* Conversations column */}
+      <aside style={S.convColumn}>
+        <div style={S.convHeader}>
+          <div style={{ fontWeight: 700 }}>Conversations</div>
+          <div style={{ color: S.muted, fontSize: 13 }}>{conversations.length}</div>
+        </div>
+
+        <div style={S.convList}>
+          {conversations.map((c) => {
+            const isActive = c.id === roomId;
+            const label = c.label ?? c.id;
+            return (
+              <div
+                key={c.id}
+                onClick={() => navigateToServer(c.id)}
+                style={{
+                  ...S.convRow,
+                  ...(isActive ? S.convRowActive : {}),
+                }}
+              >
+                <div style={S.convAvatar} aria-hidden>
+                  {initialsFromName(String(label))}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700 }}>{label}</div>
+                  <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>Tap to open</div>
+                </div>
+                <div style={{ fontSize: 11, color: S.muted }}>•</div>
+              </div>
+            );
+          })}
+        </div>
+      </aside>
+
+      {/* Header for messages */}
+      <header style={S.header}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 8, background: styles(theme).avatar.background, display: "flex", alignItems: "center", justifyContent: "center", color: styles(theme).text, fontWeight: 700 }}>
-            CC
-          </div>
+          <div style={S.avatar}>CC</div>
           <div>
-            <div style={styles(theme).headerTitle}>ClassConnect</div>
-            <div style={{ color: styles(theme).muted, fontSize: 13 }}>
+            <div style={S.headerTitle}>ClassConnect</div>
+            <div style={{ color: S.muted, fontSize: 13 }}>
               Room: <span style={{ fontWeight: 700 }}>{roomId}</span>
             </div>
           </div>
         </div>
 
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          <div style={{ color: styles(theme).muted, fontSize: 13 }}>{participants.filter((p) => p.status === "online").length} online</div>
-          <div style={{ width: 1, height: 24, background: styles(theme).muted, opacity: 0.12 }} />
+          <div style={{ color: S.muted, fontSize: 13 }}>{participants.filter((p) => p.status === "online").length} online</div>
+          <div style={{ width: 1, height: 24, background: S.muted, opacity: 0.12 }} />
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <input
               aria-label="Display name"
@@ -626,7 +675,7 @@ function AppInner() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") applyName();
               }}
-              style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${styles(theme).muted}`, background: "transparent", color: styles(theme).text }}
+              style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${S.muted}`, background: "transparent", color: S.text }}
             />
             <button onClick={() => applyName()} style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer" }}>
               Set
@@ -635,11 +684,12 @@ function AppInner() {
         </div>
       </header>
 
-      <main style={styles(theme).center}>
-        <div style={styles(theme).messagesPanel}>
-          <div id="messages-list" style={styles(theme).messagesList} role="log" aria-live="polite">
+      {/* Center messages */}
+      <main style={S.center}>
+        <div style={S.messagesPanel}>
+          <div id="messages-list" style={S.messagesList} role="log" aria-live="polite">
             {visibleMessages.length === 0 ? (
-              <div style={{ color: styles(theme).muted, textAlign: "center", padding: 20 }}>No messages yet — say hello 👋</div>
+              <div style={{ color: S.muted, textAlign: "center", padding: 20 }}>No messages yet — say hello 👋</div>
             ) : (
               visibleMessages.map((m) => {
                 const isMe = m.user === name;
@@ -653,17 +703,18 @@ function AppInner() {
                       gap: 12,
                     }}
                   >
-                    <div style={styles(theme).avatar} aria-hidden>
+                    <div style={{ ...S.avatar, width: 40, height: 40, borderRadius: 10 }} aria-hidden>
                       {initialsFromName(m.user)}
                     </div>
+
                     <div style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                        <div style={styles(theme).authorLine}>{m.user}</div>
-                        <div style={styles(theme).timeSmall}>
+                        <div style={S.authorLine}>{m.user}</div>
+                        <div style={S.timeSmall}>
                           {m.role}&nbsp;•&nbsp;{typeof (m as any).created_at === "string" ? new Date((m as any).created_at).toLocaleTimeString() : ""}
                         </div>
                       </div>
-                      <div style={isMe ? styles(theme).bubbleMe : styles(theme).bubbleThem}>
+                      <div style={isMe ? S.bubbleMe : S.bubbleThem}>
                         <div style={{ whiteSpace: "pre-wrap" }}>{m.content}</div>
                       </div>
                     </div>
@@ -685,70 +736,86 @@ function AppInner() {
               input.value = "";
               input.focus();
             }}
-            style={styles(theme).composer}
+            style={S.composer}
           >
-            <input name="content" ref={inputRef} style={styles(theme).input} placeholder={`Message #${roomId}`} autoComplete="off" />
-            <button type="submit" style={styles(theme).sendBtn}>Send</button>
+            <input
+              name="content"
+              ref={inputRef}
+              style={S.input}
+              placeholder={`Message #${roomId}`}
+              autoComplete="off"
+            />
+            <button type="submit" style={S.sendBtn}>Send</button>
           </form>
         </div>
       </main>
 
-      <aside style={styles(theme).rightSidebar}>
-        <div style={styles(theme).participantsTitle}>Participants</div>
-        <div style={{ color: styles(theme).muted, fontSize: 13, marginBottom: 8 }}>{participants.length} total</div>
-
-        <div>
-          {participants.length === 0 ? (
-            <div style={{ color: styles(theme).muted }}>No participants yet</div>
-          ) : (
-            participants.map((p) => (
-              <div
-                key={p.user}
-                style={{
-                  ...styles(theme).participantRow,
-                  justifyContent: "space-between",
-                }}
-              >
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <div style={styles(theme).avatar}>{initialsFromName(p.user)}</div>
-                  <div style={{ display: "flex", flexDirection: "column" }}>
-                    <div style={{ fontWeight: 700 }}>{p.user}</div>
-                    <div style={{ fontSize: 12, color: styles(theme).muted }}>{p.lastSeen ? new Date(p.lastSeen).toLocaleString() : p.status}</div>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <button
-                    onClick={() => {
-                      // mention in input
-                      const el = inputRef.current;
-                      if (el) {
-                        el.focus();
-                        el.value = `@${p.user} `;
-                      }
-                    }}
-                    style={{ padding: "6px 8px", borderRadius: 6, cursor: "pointer" }}
-                    title="Mention"
-                  >
-                    @
-                  </button>
-
-                  <button
-                    onClick={() => startDMWith(p)}
-                    style={{ padding: "6px 8px", borderRadius: 6, cursor: "pointer" }}
-                    title="Start DM"
-                  >
-                    DM
-                  </button>
-
-                  <div style={styles(theme).presenceDot(p.status)} />
-                </div>
-              </div>
-            ))
-          )}
+      {/* Right participant / profile */}
+      <aside style={S.rightSidebar}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+          <div style={S.avatar}>{initialsFromName(name)}</div>
+          <div>
+            <div style={{ fontWeight: 800 }}>{name}</div>
+            <div style={{ color: S.muted, fontSize: 13 }}>{participants.filter((p) => p.status === "online").length} online</div>
+          </div>
         </div>
 
-        <div style={{ marginTop: 16, color: styles(theme).muted, fontSize: 13 }}>
+        <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: 12 }}>
+          <div style={S.participantsTitle}>Participants</div>
+          <div style={{ color: S.muted, fontSize: 13, marginBottom: 8 }}>{participants.length} total</div>
+
+          <div>
+            {participants.length === 0 ? (
+              <div style={{ color: S.muted }}>No participants yet</div>
+            ) : (
+              participants.map((p) => (
+                <div
+                  key={p.user}
+                  style={{
+                    ...S.participantRow,
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div style={{ ...S.avatar, width: 40, height: 40, borderRadius: 10 }}>{initialsFromName(p.user)}</div>
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <div style={{ fontWeight: 700 }}>{p.user}</div>
+                      <div style={{ fontSize: 12, color: S.muted }}>{p.lastSeen ? new Date(p.lastSeen).toLocaleString() : p.status}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button
+                      onClick={() => {
+                        const el = inputRef.current;
+                        if (el) {
+                          el.focus();
+                          el.value = `@${p.user} `;
+                        }
+                      }}
+                      style={{ padding: "6px 8px", borderRadius: 6, cursor: "pointer" }}
+                      title="Mention"
+                    >
+                      @
+                    </button>
+
+                    <button
+                      onClick={() => startDMWith(p)}
+                      style={{ padding: "6px 8px", borderRadius: 6, cursor: "pointer" }}
+                      title="Start DM"
+                    >
+                      DM
+                    </button>
+
+                    <div style={S.presenceDot(p.status)} />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 16, color: S.muted, fontSize: 13 }}>
           Tip: Click a participant to mention them or start a DM. Servers and DMs are saved locally.
         </div>
       </aside>
