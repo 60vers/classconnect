@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import styled from "styled-components";
 import { createRoot } from "react-dom/client";
 import { usePartySocket } from "partysocket/react";
 import {
@@ -15,110 +14,95 @@ import { nanoid } from "nanoid";
 import { names, type ChatMessage, type Message } from "../shared";
 
 /**
- * Minimalist fullscreen chat with:
- * - center messages
- * - bottom-centered, polished input UI (based on user's component)
- * - presence support (presence messages sent/received; green dot next to online participants)
- * - image sending (base64 data URLs) via file picker / paste
- * - optimistic sends + reconciliation with server echoes
- * - mention notifications (in-app badge + optional browser Notification)
- *
- * Single-file index.tsx as requested.
+ * Single-file index.tsx
+ * - Removed styled-components dependency (inlined CSS via <style> injection)
+ * - Minimalist fullscreen chat with bottom-centered input
+ * - Presence, image sending (base64), optimistic sends + reconciliation
  */
 
-/* -------------------- Styled Input (adapted from user) -------------------- */
+/* ---------------- Inlined input CSS (replaces styled-components) ---------------- */
+const INPUT_CSS = `
+.container-ia-chat {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+}
+.container-upload-files {
+  position: absolute;
+  left: 12px;
+  display: flex;
+  color: #aaaaaa;
+  transition: all 0.5s;
+  pointer-events: none;
+}
+.container-upload-files .upload-file {
+  margin: 0 6px;
+  padding: 2px;
+  cursor: pointer;
+  transition: all 0.2s;
+  pointer-events: auto;
+}
+.input-text {
+  width: 100%;
+  padding: 12px 48px 12px 120px;
+  border-radius: 999px;
+  border: none;
+  outline: none;
+  background-color: #f1f3f5;
+  color: #111827;
+  font-size: 14px;
+  line-height: 18px;
+  font-weight: 500;
+  transition: all 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.05);
+  box-shadow: 0 6px 18px rgba(16, 24, 40, 0.04);
+}
+.input-text::placeholder {
+  color: #9aa0a6;
+}
+.label-files,
+.label-voice {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(16, 24, 40, 0.04);
+  cursor: pointer;
+}
+.label-files { left: 12px; }
+.label-voice { right: 12px; }
+.file-input { display: none; }
+`;
+
+/* ---------------- small helpers ---------------- */
+function initialsFromName(name: string) {
+  if (!name) return "U";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+/* ---------------- InputBar component (uses injected CSS) ---------------- */
 type InputProps = {
   onSendText: (text: string) => void;
   onSendFile: (file: File) => void;
   placeholder?: string;
 };
 
-const StyledWrapper = styled.div`
-  .container-ia-chat {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 560px;
-    margin: 0 auto;
-  }
-
-  .container-upload-files {
-    position: absolute;
-    left: 12px;
-    display: flex;
-    color: #aaaaaa;
-    transition: all 0.5s;
-    pointer-events: none;
-  }
-
-  .container-upload-files .upload-file {
-    margin: 0 6px;
-    padding: 2px;
-    cursor: pointer;
-    transition: all 0.2s;
-    pointer-events: auto;
-  }
-
-  .input-text {
-    width: 100%;
-    padding: 12px 48px 12px 120px;
-    border-radius: 999px;
-    border: none;
-    outline: none;
-    background-color: #f1f3f5;
-    color: #111827;
-    font-size: 14px;
-    line-height: 18px;
-    font-weight: 500;
-    transition: all 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.05);
-    box-shadow: 0 6px 18px rgba(16, 24, 40, 0.04);
-  }
-
-  .input-text::placeholder {
-    color: #9aa0a6;
-  }
-
-  .label-files,
-  .label-voice {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
-    border-radius: 999px;
-    background: #ffffff;
-    border: 1px solid rgba(16, 24, 40, 0.04);
-    cursor: pointer;
-  }
-
-  .label-files {
-    left: 12px;
-  }
-
-  .label-voice {
-    right: 12px;
-  }
-
-  .ai {
-    display: none; /* keep visual complexity out for minimalism */
-  }
-
-  .file-input {
-    display: none;
-  }
-`;
-
-/* Input component (uses file input internally) */
 function InputBar({ onSendText, onSendFile, placeholder = "Ask Anything..." }: InputProps) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    // allow paste->image
     const onPaste = (e: ClipboardEvent) => {
       if (!e.clipboardData) return;
       const items = Array.from(e.clipboardData.items || []);
@@ -133,9 +117,11 @@ function InputBar({ onSendText, onSendFile, placeholder = "Ask Anything..." }: I
   }, [onSendFile]);
 
   return (
-    <StyledWrapper>
+    <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+      {/* inject styles */}
+      <style>{INPUT_CSS}</style>
+
       <div className="container-ia-chat" aria-hidden={false}>
-        {/* left file icons (informational) */}
         <div className="container-upload-files" aria-hidden>
           <svg className="upload-file" xmlns="http://www.w3.org/2000/svg" width={20} height={20} viewBox="0 0 24 24">
             <g fill="none" stroke="currentColor" strokeWidth={2}>
@@ -153,7 +139,6 @@ function InputBar({ onSendText, onSendFile, placeholder = "Ask Anything..." }: I
           </svg>
         </div>
 
-        {/* hidden file input */}
         <input
           ref={fileRef}
           className="file-input"
@@ -166,7 +151,6 @@ function InputBar({ onSendText, onSendFile, placeholder = "Ask Anything..." }: I
           }}
         />
 
-        {/* visible input */}
         <input
           ref={inputRef}
           className="input-text"
@@ -181,13 +165,12 @@ function InputBar({ onSendText, onSendFile, placeholder = "Ask Anything..." }: I
               }
             }
           }}
+          aria-label="Message input"
         />
 
         <label
           className="label-files"
-          onClick={() => {
-            fileRef.current?.click();
-          }}
+          onClick={() => fileRef.current?.click()}
           title="Attach image"
           aria-label="Attach image"
         >
@@ -196,18 +179,17 @@ function InputBar({ onSendText, onSendFile, placeholder = "Ask Anything..." }: I
           </svg>
         </label>
 
-        <label className="label-voice" title="Send/Cancel voice (not implemented)">
+        <label className="label-voice" title="Voice (not implemented)">
           <svg className="icon-voice" xmlns="http://www.w3.org/2000/svg" width={18} height={18} viewBox="0 0 24 24">
             <path fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth={2} d="M12 4v16m4-13v10M8 7v10m12-6v2M4 11v2" />
           </svg>
         </label>
       </div>
-    </StyledWrapper>
+    </div>
   );
 }
 
-/* -------------------- App -------------------- */
-
+/* ---------------- App ---------------- */
 type Participant = {
   user: string;
   id?: string;
@@ -253,11 +235,10 @@ function AppInner() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [focused, setFocused] = useState(true);
 
-  // pending queue & socket refs
   const socketRef = useRef<any>(null);
   const pendingQueueRef = useRef<Map<string, any>>(new Map());
 
-  // load cached messages for this room
+  // load room state
   useEffect(() => {
     try {
       const raw = localStorage.getItem(`cc:messages:${roomId}`);
@@ -275,7 +256,7 @@ function AppInner() {
     }
   }, [roomId]);
 
-  // persist messages & participants
+  // persist
   useEffect(() => {
     try {
       localStorage.setItem(`cc:messages:${roomId}`, JSON.stringify(messages.slice(-300)));
@@ -288,36 +269,34 @@ function AppInner() {
     } catch {}
   }, [participants, roomId]);
 
-  // helper: reconcile server message with optimistic
+  // reconcile server messages with optimistic
   const reconcileServerMessage = useCallback((msg: Message) => {
     setMessages((prev) => {
-      // if same id exists, update
       const idx = prev.findIndex((m) => m.id === msg.id);
       if (idx !== -1) {
         const copy = prev.slice();
-        copy[idx] = { ...copy[idx], ...msg, pending: false };
+        copy[idx] = { ...copy[idx], ...msg, pending: false } as any;
         pendingQueueRef.current.delete(msg.id);
         return copy;
       }
 
-      // match by user+content recent optimistic
+      // match by recent optimistic messages
       for (let i = prev.length - 1; i >= Math.max(0, prev.length - 40); i--) {
         const m = prev[i] as any;
         if (m.pending && m.user === msg.user && m.content === msg.content) {
           const copy = prev.slice();
-          copy[i] = { ...m, ...msg, pending: false };
+          copy[i] = { ...m, ...msg, pending: false } as any;
           pendingQueueRef.current.delete(m.id);
           return copy;
         }
       }
 
-      // append if no match
       pendingQueueRef.current.delete(msg.id);
-      return [...prev, { ...msg, pending: false }];
+      return [...prev, { ...(msg as any), pending: false }];
     });
   }, []);
 
-  // message incoming handler
+  // handle incoming
   const handleIncoming = useCallback(
     (evt: MessageEvent) => {
       try {
@@ -325,7 +304,6 @@ function AppInner() {
         if (!data || typeof data !== "object") return;
 
         if (data.type === "presence") {
-          // presence messages: update participants
           const p: Participant = { user: data.user, id: data.id ?? data.user, status: data.status ?? "online", lastSeen: data.lastSeen };
           setParticipants((prev) => {
             const idx = prev.findIndex((x) => x.user === p.user);
@@ -344,19 +322,15 @@ function AppInner() {
         }
 
         if (data.type === "add") {
-          const msg = data as Message & { id: string; content: string; user: string; created_at?: string };
-          reconcileServerMessage(msg);
+          reconcileServerMessage(data);
 
-          // notifications: if message mentions current user, mark and optionally show browser notification
-          const mention = typeof msg.content === "string" && msg.content.includes(`@${name}`);
+          const mention = typeof data.content === "string" && data.content.includes(`@${name}`);
           if (!focused || mention) {
             setUnreadCount((n) => n + 1);
-            // try browser notification when permission allowed
             if (mention && "Notification" in window && Notification.permission === "granted") {
-              new Notification(`Mention from ${msg.user}`, { body: msg.content.slice(0, 120) });
+              new Notification(`Mention from ${data.user}`, { body: (data.content || "").slice(0, 120) });
             }
           }
-          return;
         }
       } catch (err) {
         console.warn("handleIncoming parse error", err);
@@ -365,33 +339,29 @@ function AppInner() {
     [name, reconcileServerMessage, focused],
   );
 
-  // wire socket via party hook, re-created on room change
+  // party socket
   const partySocket = usePartySocket({
     party: "chat",
     room: roomId,
     onMessage: handleIncoming,
     onOpen() {
-      // flush pending queue
       pendingQueueRef.current.forEach((payload) => {
         try {
           socketRef.current?.send(JSON.stringify(payload));
         } catch {}
       });
-      // announce presence on open
       try {
         socketRef.current?.send(JSON.stringify({ type: "presence", user: name, status: "online", id: clientId, lastSeen: new Date().toISOString() }));
       } catch {}
     },
-    onClose() {
-      // best-effort presence leave will be sent on unload
-    },
+    onClose() {},
   });
 
   useEffect(() => {
     socketRef.current = partySocket;
   }, [partySocket]);
 
-  // presence heartbeat and unload
+  // presence heartbeat
   useEffect(() => {
     const sendPresence = (status: "online" | "offline") => {
       try {
@@ -419,7 +389,7 @@ function AppInner() {
     };
   }, [name, clientId]);
 
-  // focus / visibility tracking (to compute unread)
+  // focus handling
   useEffect(() => {
     const onFocus = () => {
       setFocused(true);
@@ -434,61 +404,36 @@ function AppInner() {
     };
   }, []);
 
-  // send payload helper (queue + immediate attempt)
+  // send payload helper
   const sendPayload = useCallback((payload: any) => {
-    // ensure id
     if (!payload.id) payload.id = nanoid(12);
     pendingQueueRef.current.set(payload.id, payload);
     try {
       socketRef.current?.send(JSON.stringify(payload));
-    } catch {
-      // will be retried when socket opens
-    }
-    // optimistic add
+    } catch {}
     setMessages((prev) => [...prev, { ...payload, pending: true } as any]);
   }, []);
 
-  // public sendText/sendFile handlers
   const sendText = useCallback((text: string) => {
-    const payload: any = {
-      type: "add",
-      id: nanoid(12),
-      content: text,
-      user: name,
-      role: "user",
-      created_at: new Date().toISOString(),
-    };
-    sendPayload(payload);
+    const p = { type: "add", id: nanoid(12), content: text, user: name, role: "user", created_at: new Date().toISOString() };
+    sendPayload(p);
   }, [name, sendPayload]);
 
   const sendFile = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
-      const payload: any = {
-        type: "add",
-        id: nanoid(12),
-        content: dataUrl,
-        user: name,
-        role: "user",
-        kind: "image",
-        created_at: new Date().toISOString(),
-      };
-      sendPayload(payload);
+      const p = { type: "add", id: nanoid(12), content: dataUrl, user: name, role: "user", kind: "image", created_at: new Date().toISOString() };
+      sendPayload(p);
     };
-    reader.onerror = () => {
-      console.warn("file read error");
-    };
+    reader.onerror = () => console.warn("file read error");
     reader.readAsDataURL(file);
   }, [name, sendPayload]);
 
-  // simple channels list (minimal)
   const CHANNELS = useMemo(() => ["general", "design-discussions", "support-group", "for-hire"], []);
 
-  // ensure navigation to room on click
   const goto = useCallback((r: string) => navigate(`/${r}`), [navigate]);
 
-  // request notification permission on mount (optional)
   useEffect(() => {
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});
@@ -508,7 +453,7 @@ function AppInner() {
       overflow: "hidden",
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif'
     }}>
-      {/* left minimal channels */}
+      {/* left */}
       <nav style={{ borderRight: "1px solid rgba(16,24,40,0.04)", padding: 12, display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
         <div style={{ width: 48, height: 48, borderRadius: 12, background: "#111827", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>DB</div>
         <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
@@ -518,15 +463,13 @@ function AppInner() {
             </button>
           ))}
         </div>
-
         <div style={{ marginTop: "auto", display: "flex", gap: 8 }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: "#e9eefb", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }} onClick={() => goto("general")}>🏠</div>
         </div>
       </nav>
 
-      {/* center messages */}
+      {/* center */}
       <main style={{ display: "flex", flexDirection: "column", alignItems: "stretch", padding: 24, gap: 12, overflow: "hidden" }}>
-        {/* header minimal */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ fontSize: 18, fontWeight: 700 }}>#{roomId}</div>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -535,7 +478,6 @@ function AppInner() {
           </div>
         </div>
 
-        {/* messages container */}
         <div id="messages-list" style={{ flex: 1, overflow: "auto", padding: "8px 12px", display: "flex", flexDirection: "column", gap: 12 }}>
           {messages.map((m: any) => {
             const isMe = m.user === name;
@@ -573,7 +515,6 @@ function AppInner() {
           })}
         </div>
 
-        {/* bottom centered input (fixed within center column) */}
         <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}>
           <div style={{ width: 560 }}>
             <InputBar onSendText={sendText} onSendFile={sendFile} placeholder={`Message #${roomId}`} />
@@ -581,7 +522,7 @@ function AppInner() {
         </div>
       </main>
 
-      {/* right participants */}
+      {/* right */}
       <aside style={{ borderLeft: "1px solid rgba(16,24,40,0.04)", padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontWeight: 700 }}>Participants</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
