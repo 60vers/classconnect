@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { usePartySocket } from "partysocket/react";
+import "./styles.css";
 import {
   BrowserRouter,
   Routes,
