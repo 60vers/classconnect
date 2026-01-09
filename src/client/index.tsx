@@ -243,6 +243,8 @@ function AppInner() {
   const navigate = useNavigate();
   const roomId = room ?? "general";
 
+  const [draft, setDraft] = useState(name);
+  
   const [name, setName] = useState(() => {
   try { const v = localStorage.getItem("cc:name"); if (v) return v; } catch {}
   const n = names[Math.floor(Math.random() * names.length)];
@@ -474,19 +476,28 @@ function AppInner() {
     type="text"
     value={name}
     onChange={(e) => {
-      const newName = e.target.value;
-      setName(newName); // update state
-      try { localStorage.setItem("cc:name", newName); } catch {}
-      try {
-        socketRef.current?.send(JSON.stringify({
-          type: "presence",
-          user: newName,
-          status: "online",
-          id: clientId,
-          lastSeen: new Date().toISOString(),
-        }));
-      } catch {}
+      // update local draft only
+      setDraft(e.target.value);
     }}
+    onKeyDown={(e) => {
+      if (e.key === "Enter") {
+        const newName = draft.trim();
+        if (!newName) return;
+        setName(newName); // update main state
+        try { localStorage.setItem("cc:name", newName); } catch {}
+
+        try {
+          socketRef.current?.send(JSON.stringify({
+            type: "presence",
+            user: newName,
+            status: "online",
+            id: clientId,
+            lastSeen: new Date().toISOString(),
+          }));
+        } catch {}
+      }
+    }}
+    onBlur={() => setDraft(name)} // reset draft if user clicks away
     style={{
       fontWeight: 700,
       fontSize: 12,
@@ -499,6 +510,7 @@ function AppInner() {
     }}
   />
 </div>
+
         </div>
       </div>
     </div>
