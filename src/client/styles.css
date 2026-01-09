@@ -1,0 +1,7 @@
+.container-ia-chat input {
+  background-color: transparent;
+  box-shadow: none;
+  border: none;
+  margin: 0;
+  height: auto;
+}
