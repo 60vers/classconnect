@@ -57,12 +57,9 @@ html,body,#root{height:100%;margin:0;background:var(--page-bg);font-family:-appl
 
 /* input container (visually like the Uiverse component) */
 .container-ia-chat {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  max-width: 720px;
+  background: var(--page-bg);
+  border: 1px solid rgba(16,24,40,0.04);
+  border-radius: 999px;
 }
 
 /* left icons group */
