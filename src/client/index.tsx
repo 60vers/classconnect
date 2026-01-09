@@ -62,7 +62,7 @@ html,body,#root{height:100%;margin:0;background:var(--page-bg);font-family:-appl
 .center-column{display:flex;flex-direction:column;justify-content:flex-start;padding:28px;gap:12px;overflow:hidden}
 .messages-list{flex:1;overflow:auto;display:flex;flex-direction:column;gap:12px;padding-right:8px}
 .message-row{display:flex;gap:12px;align-items:flex-start}
-.avatar{width:36px;height:36px;border-radius:8px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;font-weight:700;color:#374151}
+.avatar{width:36px;height:36px;border-radius:8px;background:transparent;box-shadow:0 8px 20px rgba(108,92,231,0.08);display:flex;align-items:center;justify-content:center;font-weight:700;color:#374151}
 .bubble{background:var(--input-bg);color:#111827;padding:10px 14px;border-radius:12px;max-width:80%;border:1px solid rgba(16,24,40,0.03);box-shadow:0 6px 12px rgba(16,24,40,0.04)}
 .bubble.me{background:transparent;color:black;border:none;box-shadow:0 8px 20px rgba(108,92,231,0.08);align-self:flex-end}
 .composer-wrapper{display:flex;justify-content:center;padding:18px 0}
