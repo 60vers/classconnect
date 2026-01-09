@@ -33,6 +33,7 @@ const UIVERSE_CSS = `
 }
 
 .container-ia-chat {
+  --input-bg: var(--page-bg);
   position:relative;
   display:flex;
   align-items:center;
@@ -40,18 +41,20 @@ const UIVERSE_CSS = `
   width:100%;
   max-width:640px;
   transition:all .18s ease;
+  background:#e8e8e8;
+  border: 1px solid rgba(16,24,40,0.04);
+  border-radius: 999px;
+}
+
+.container-ia-chat > .input-text {
   background-color: #ffffff !important;
   border: none !important;
   box-shadow: 0 6px 18px rgba(16,24,40,0.04) !important;
   color: #333 !important;
   padding-left: 56px !important;
   text-align: center !important;
-
 }
 
-.container-ia-chat .input-text {
-  box-shadow: none;
-}
 
 
 html,body,#root{height:100%;margin:0;background:var(--page-bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
