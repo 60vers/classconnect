@@ -243,21 +243,22 @@ function AppInner() {
   const navigate = useNavigate();
   const roomId = room ?? "general";
 
-  const [name, setName] = useState(() => {
-    try { const v = localStorage.getItem("cc:name"); if (v) return v; } catch {}
-    const n = names[Math.floor(Math.random() * names.length)];
-    try { localStorage.setItem("cc:name", n); } catch {}
-    return n;
-  });
+const [name, setName] = useState(() => {
+  try { const v = localStorage.getItem("cc:name"); if (v) return v; } catch {}
+  const n = names[Math.floor(Math.random() * names.length)];
+  try { localStorage.setItem("cc:name", n); } catch {}
+  return n;
+});
 
-  const [draft, setDraft] = useState(name);
+const [draft, setDraft] = useState(name);
 
-  const [clientId] = useState(() => {
-    try { const v = localStorage.getItem("cc:clientId"); if (v) return v; } catch {}
-    const id = nanoid(8);
-    try { localStorage.setItem("cc:clientId", id); } catch {}
-    return id;
-  });
+const [clientId] = useState(() => {
+  try { const v = localStorage.getItem("cc:clientId"); if (v) return v; } catch {}
+  const id = nanoid(8);
+  try { localStorage.setItem("cc:clientId", id); } catch {}
+  return id;
+});
+
   
   const [name, setName] = useState(() => {
   try { const v = localStorage.getItem("cc:name"); if (v) return v; } catch {}
@@ -490,8 +491,8 @@ function AppInner() {
   onChange={(e) => setDraft(e.target.value)}
   onKeyDown={(e) => {
     if (e.key === "Enter") {
-      setName(draft); // commit change
-      try { localStorage.setItem("cc:name", draft); } catch {};
+      setName(draft);
+      try { localStorage.setItem("cc:name", draft); } catch {}
       try {
         socketRef.current?.send(JSON.stringify({
           type: "presence",
