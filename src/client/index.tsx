@@ -80,17 +80,17 @@ html,body,#root{height:100%;margin:0;background:var(--page-bg);font-family:-appl
   border-radius:999px;
   border:none;
   outline:none;
-  background:var(--input-bg);
+  background::#e8e8e8;
   color:#333;
   font-size:15px;
   line-height:18px;
   font-weight:500;
-  box-shadow:0 6px 18px rgba(16,24,40,0.04);
   text-align:center; /* placeholder centered */
   transition: all .22s cubic-bezier(.2,.9,.3,1);
 }
 .input-text::placeholder{color:var(--muted);opacity:.95}
 .container-ia-chat.focused .input-text{
+  background::#e8e8e8;
   text-align:left;
   padding-left:56px; /* bring typed text closer after focus */
 }
