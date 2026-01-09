@@ -276,34 +276,55 @@ function AppInner() {
   const participantsKey = `cc:participants:${roomId}`;
   const [participants, setParticipants] = usePersistentState<Participant[]>(participantsKey, []);
 
-  // servers persisted (list of objects). Handle migration from old string-list if present.
+  // servers persisted (list of objects). Migrate & sanitize any malformed entries.
   const [servers, setServers] = usePersistentState<ServerItem[]>("cc:servers", () => {
     try {
       const raw = localStorage.getItem("cc:servers");
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      // migrate array of strings -> objects
-      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === "string") {
-        return parsed.map((s: string) => ({ id: s, label: s.slice(0, 6), type: s.startsWith("dm--") ? "dm" : "server" }));
-      }
-      return parsed as ServerItem[];
+      const arr = Array.isArray(parsed) ? parsed : [];
+      const normalized = arr
+        .map((item: any) => {
+          if (!item) return null;
+          if (typeof item === "string") {
+            const id = item.trim();
+            if (!id) return null;
+            return { id, label: id.slice(0, 6), type: id.startsWith("dm--") ? "dm" : "server" } as ServerItem;
+          }
+          if (typeof item === "object") {
+            const id = item.id ?? (typeof item.label === "string" ? item.label : null);
+            if (!id) return null;
+            const sid = String(id);
+            return { id: sid, label: item.label ?? sid.slice(0, 6), type: item.type === "dm" ? "dm" : "server" } as ServerItem;
+          }
+          return null;
+        })
+        .filter(Boolean) as ServerItem[];
+      // persist normalized form back (best-effort)
+      try {
+        localStorage.setItem("cc:servers", JSON.stringify(normalized));
+      } catch {}
+      return normalized;
     } catch {
       return [];
     }
   });
 
-  // ensure current room is in servers list
+  // ensure current room is in servers list (defensive)
   useEffect(() => {
     if (!roomId) return;
-    const found = servers.find((s) => s.id === roomId);
+    const found = servers.find((s) => s && s.id === roomId);
     if (!found) {
       const item: ServerItem = {
         id: roomId,
-        label: roomId.startsWith("dm--") ? `DM ${roomId.slice(4, 10)}` : roomId.slice(0, 6),
+        label: roomId.startsWith("dm--") ? `DM ${roomId.slice(4, 10)}` : String(roomId).slice(0, 6),
         type: roomId.startsWith("dm--") ? "dm" : "server",
       };
-      const updated = [...servers, item];
-      setServers(updated);
+      setServers((prev) => {
+        // avoid duplicates in case of races
+        if (prev.some((p) => p && p.id === item.id)) return prev;
+        return [...prev, item];
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
@@ -475,21 +496,22 @@ function AppInner() {
   /* ---------- Server management ---------- */
   const addServer = (id: string, label?: string, type: ServerItem["type"] = "server") => {
     if (!id) return;
-    if (servers.some((s) => s.id === id)) return;
-    const item: ServerItem = { id, label: label ?? id.slice(0, 6), type };
-    const updated = [...servers, item];
-    setServers(updated);
+    const sid = String(id);
+    setServers((prev) => {
+      if (prev.some((s) => s && s.id === sid)) return prev;
+      const item: ServerItem = { id: sid, label: label ?? sid.slice(0, 6), type };
+      return [...prev, item];
+    });
   };
 
   const removeServer = (id: string) => {
-    setServers((prev) => prev.filter((s) => s.id !== id));
+    setServers((prev) => prev.filter((s) => s && s.id !== id));
   };
 
   const navigateToServer = (id: string) => {
+    if (!id) return;
     // ensure persisted
-    if (!servers.find((s) => s.id === id)) {
-      addServer(id, id.slice(0, 6), id.startsWith("dm--") ? "dm" : "server");
-    }
+    addServer(id, id.slice(0, 6), id.startsWith("dm--") ? "dm" : "server");
     window.location.pathname = `/${id}`;
   };
 
@@ -517,19 +539,21 @@ function AppInner() {
         <div style={{ marginTop: 8, width: "100%", display: "flex", justifyContent: "center" }}>
           <div style={styles(theme).leftNavList}>
             {servers.map((s) => {
-              const isActive = s.id === roomId;
+              const sid = s?.id ?? "";
+              const label = s?.label ?? sid;
+              const isActive = sid === roomId;
               return (
                 <button
-                  key={s.id}
-                  title={s.label ?? s.id}
-                  onClick={() => navigateToServer(s.id)}
+                  key={sid || Math.random().toString(36).slice(2, 9)}
+                  title={label ?? sid}
+                  onClick={() => sid && navigateToServer(sid)}
                   style={{
                     ...styles(theme).serverBtnSmall,
                     ...(isActive ? styles(theme).serverActive : {}),
-                    background: s.type === "dm" ? "#f1f5ff" : undefined,
+                    background: s?.type === "dm" ? "#f1f5ff" : undefined,
                   }}
                 >
-                  {s.label?.slice(0, 2) ?? s.id.slice(0, 2)}
+                  {label ? (label.slice ? label.slice(0, 2) : String(label).slice(0, 2)) : "??"}
                 </button>
               );
             })}
@@ -557,6 +581,7 @@ function AppInner() {
               if (id) {
                 // sanitize simple ids
                 const sanitized = id.trim();
+                if (!sanitized) return;
                 addServer(sanitized, sanitized.slice(0, 6), sanitized.startsWith("dm--") ? "dm" : "server");
                 navigateToServer(sanitized);
               }
