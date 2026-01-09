@@ -416,7 +416,7 @@ function AppInner() {
       <div className="fullscreen-grid" role="application">
         <div className="center-column" aria-live="polite">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ color: white, fontWeight: 700, fontSize: 18, backgroundColor: "#0044fa63" }}>#{roomId}</div>
+            <div style={{ color: "white", fontWeight: 700, fontSize: 18, backgroundColor: "#0044fa63" }}>#{roomId}</div>
             <div style={{ color: "#9aa0a6" }}>{participants.filter(p => p.status === "online").length} online</div>
           </div>
 
