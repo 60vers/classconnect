@@ -469,8 +469,37 @@ function AppInner() {
           </div>
 
           <div style={{ marginTop: 12, fontSize: 12, color: "#9aa0a6" }}>
-            Your name: <strong>{name}</strong>
-          </div>
+  Your name:{" "}
+  <input
+    type="text"
+    value={name}
+    onChange={(e) => {
+      const newName = e.target.value;
+      setName(newName); // update state
+      try { localStorage.setItem("cc:name", newName); } catch {}
+      try {
+        socketRef.current?.send(JSON.stringify({
+          type: "presence",
+          user: newName,
+          status: "online",
+          id: clientId,
+          lastSeen: new Date().toISOString(),
+        }));
+      } catch {}
+    }}
+    style={{
+      fontWeight: 700,
+      fontSize: 12,
+      border: "1px solid #ccc",
+      borderRadius: 4,
+      padding: "2px 4px",
+      background: "#fff",
+      color: "#111827",
+      width: 80,
+    }}
+  />
+</div>
+
         </div>
       </div>
     </div>
