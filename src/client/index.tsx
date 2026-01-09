@@ -7,14 +7,29 @@ import {
   Route,
   Navigate,
   useParams,
+  useNavigate,
 } from "react-router";
 import { nanoid } from "nanoid";
 
 import { names, type ChatMessage, type Message } from "../shared";
 
-/* ---------- Theme helpers ---------- */
-type Theme = "dark" | "light";
+/* ---------- Types ---------- */
+type Theme = "light" | "dark";
 
+type ServerItem = {
+  id: string; // room id
+  label?: string;
+  type?: "server" | "dm";
+};
+
+type Participant = {
+  user: string;
+  status: "online" | "offline";
+  lastSeen?: string;
+  id?: string;
+};
+
+/* ---------- Persistent state helper ---------- */
 function usePersistentState<T>(key: string, initial: T | (() => T)) {
   const initializer = typeof initial === "function" ? (initial as () => T) : () => initial;
   const [state, setState] = useState<T>(() => {
@@ -33,7 +48,7 @@ function usePersistentState<T>(key: string, initial: T | (() => T)) {
   return [state, setState] as const;
 }
 
-/* ---------- Styles factory (light-only) ---------- */
+/* ---------- Styles (light default) ---------- */
 const styles = (theme: Theme) => {
   const isDark = theme === "dark";
   const bg = isDark ? "#0f1720" : "#f3f6fb";
@@ -81,6 +96,22 @@ const styles = (theme: Theme) => {
       fontWeight: 700,
       cursor: "pointer",
       boxShadow: isDark ? "none" : "0 6px 16px rgba(88,101,242,0.12)",
+    },
+    leftNavList: { display: "flex", flexDirection: "column", gap: 8 },
+    serverBtnSmall: {
+      width: 40,
+      height: 40,
+      borderRadius: 10,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      background: "#e6eef8",
+      color: text,
+      cursor: "pointer",
+      border: "none",
+    },
+    serverActive: {
+      boxShadow: "0 0 0 3px rgba(88,101,242,0.12)",
     },
     header: {
       gridColumn: "2 / 3",
@@ -209,14 +240,6 @@ const styles = (theme: Theme) => {
   };
 };
 
-/* ---------- Presence & participants types ---------- */
-type Participant = {
-  user: string;
-  status: "online" | "offline";
-  lastSeen?: string;
-  id?: string;
-};
-
 /* ---------------- Helper utilities ---------------- */
 function initialsFromName(name: string) {
   if (!name) return "U";
@@ -228,7 +251,11 @@ function initialsFromName(name: string) {
 /* ---------------- Main App component ---------------- */
 function AppInner() {
   const { room } = useParams<{ room: string }>();
+  const navigate = useNavigate();
   const roomId = room ?? "main";
+
+  // persistent client id (used for deterministic DM ids)
+  const [clientId] = usePersistentState<string>("cc:clientId", () => nanoid(8));
 
   // name persisted
   const [name, setName] = usePersistentState<string>("cc:name", () => {
@@ -238,16 +265,8 @@ function AppInner() {
   });
   const [editingName, setEditingName] = useState(name);
 
-  // light theme only
+  // theme: fixed to light
   const theme: Theme = "light";
-
-  // ensure document theme attribute is set
-  useEffect(() => {
-    try {
-      document.documentElement.setAttribute("data-theme", theme);
-      document.body.setAttribute("data-theme", theme);
-    } catch {}
-  }, []);
 
   // messages persisted per room
   const messagesKey = `cc:messages:${roomId}`;
@@ -257,6 +276,38 @@ function AppInner() {
   const participantsKey = `cc:participants:${roomId}`;
   const [participants, setParticipants] = usePersistentState<Participant[]>(participantsKey, []);
 
+  // servers persisted (list of objects). Handle migration from old string-list if present.
+  const [servers, setServers] = usePersistentState<ServerItem[]>("cc:servers", () => {
+    try {
+      const raw = localStorage.getItem("cc:servers");
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      // migrate array of strings -> objects
+      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === "string") {
+        return parsed.map((s: string) => ({ id: s, label: s.slice(0, 6), type: s.startsWith("dm--") ? "dm" : "server" }));
+      }
+      return parsed as ServerItem[];
+    } catch {
+      return [];
+    }
+  });
+
+  // ensure current room is in servers list
+  useEffect(() => {
+    if (!roomId) return;
+    const found = servers.find((s) => s.id === roomId);
+    if (!found) {
+      const item: ServerItem = {
+        id: roomId,
+        label: roomId.startsWith("dm--") ? `DM ${roomId.slice(4, 10)}` : roomId.slice(0, 6),
+        type: roomId.startsWith("dm--") ? "dm" : "server",
+      };
+      const updated = [...servers, item];
+      setServers(updated);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId]);
+
   // local refs
   const socketRef = useRef<any>(null);
   const heartbeatRef = useRef<number | null>(null);
@@ -264,10 +315,10 @@ function AppInner() {
   // computed styles for current theme
   const S = useMemo(() => styles(theme), [theme]);
 
-  // show only non-system messages
+  // visible messages: filter out system
   const visibleMessages = useMemo(() => messages.filter((m) => m.role !== "system"), [messages]);
 
-  // handle incoming messages (stable)
+  // handle incoming messages
   const handleIncoming = useCallback(
     (evt: MessageEvent) => {
       try {
@@ -314,7 +365,7 @@ function AppInner() {
           })) as Participant[];
           setParticipants(normalized);
         } else {
-          // ignore unknown / system-style messages to avoid chat log noise
+          // ignore unknown/system messages to avoid noise
         }
       } catch (err) {
         console.warn("Failed to parse incoming message", err);
@@ -341,7 +392,7 @@ function AppInner() {
         type: "presence",
         user: name,
         status,
-        id: nanoid(6),
+        id: clientId,
         lastSeen: new Date().toISOString(),
       } as any;
       try {
@@ -370,9 +421,9 @@ function AppInner() {
       window.removeEventListener("beforeunload", onUnload);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, roomId]);
+  }, [name, roomId, clientId]);
 
-  // scroll to bottom on new messages
+  // scroll to bottom on new visible messages
   useEffect(() => {
     const el = document.getElementById("messages-list");
     if (el) {
@@ -414,26 +465,115 @@ function AppInner() {
     setEditingName(target);
     try {
       socketRef.current?.send(
-        JSON.stringify({ type: "presence", user: target, status: "online", id: nanoid(6), lastSeen: new Date().toISOString() }),
+        JSON.stringify({ type: "presence", user: target, status: "online", id: clientId, lastSeen: new Date().toISOString() }),
       );
     } catch {}
   };
 
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  /* ---------- Server management ---------- */
+  const addServer = (id: string, label?: string, type: ServerItem["type"] = "server") => {
+    if (!id) return;
+    if (servers.some((s) => s.id === id)) return;
+    const item: ServerItem = { id, label: label ?? id.slice(0, 6), type };
+    const updated = [...servers, item];
+    setServers(updated);
+  };
+
+  const removeServer = (id: string) => {
+    setServers((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const navigateToServer = (id: string) => {
+    // ensure persisted
+    if (!servers.find((s) => s.id === id)) {
+      addServer(id, id.slice(0, 6), id.startsWith("dm--") ? "dm" : "server");
+    }
+    window.location.pathname = `/${id}`;
+  };
+
+  /* ---------- DM utilities ---------- */
+  const startDMWith = (p: Participant) => {
+    if (!p) return;
+    // prefer participant.id if available fallback to sanitized name
+    const otherId = p.id ?? `u:${p.user}`;
+    const myId = clientId;
+    const ids = [myId, otherId].sort();
+    const dmId = `dm--${ids.join("--")}`;
+    // label the DM with the other user's name
+    addServer(dmId, `DM ${p.user}`, "dm");
+    navigateToServer(dmId);
+  };
+
+  /* ---------- UI helpers ---------- */
+  const Sx = S;
+
   return (
     <div style={styles(theme).app} data-theme={theme} className="chat-fullscreen">
       <nav style={styles(theme).leftNav}>
-        <div style={styles(theme).leftNavButton} title="ClassConnect">CC</div>
-        <div
-          style={{ ...styles(theme).leftNavButton, width: 40, height: 40, background: "#2f3136" }}
-          title="New room"
-          onClick={() => {
-            const r = nanoid(8);
-            window.location.pathname = `/${r}`;
-          }}
-        >
-          +
+        <div style={styles(theme).leftNavButton} title="ClassConnect" onClick={() => navigateToServer("home")}>CC</div>
+
+        <div style={{ marginTop: 8, width: "100%", display: "flex", justifyContent: "center" }}>
+          <div style={styles(theme).leftNavList}>
+            {servers.map((s) => {
+              const isActive = s.id === roomId;
+              return (
+                <button
+                  key={s.id}
+                  title={s.label ?? s.id}
+                  onClick={() => navigateToServer(s.id)}
+                  style={{
+                    ...styles(theme).serverBtnSmall,
+                    ...(isActive ? styles(theme).serverActive : {}),
+                    background: s.type === "dm" ? "#f1f5ff" : undefined,
+                  }}
+                >
+                  {s.label?.slice(0, 2) ?? s.id.slice(0, 2)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8, width: "100%", alignItems: "center" }}>
+          <button
+            aria-label="New room"
+            onClick={() => {
+              const r = nanoid(8);
+              addServer(r, r.slice(0, 6), "server");
+              navigateToServer(r);
+            }}
+            style={{ ...styles(theme).leftNavButton, width: 40, height: 40, background: "#2f3136" }}
+            title="Create new room"
+          >
+            +
+          </button>
+
+          <button
+            aria-label="Add server by id"
+            onClick={() => {
+              const id = window.prompt("Enter server / room id or URL (room id portion):");
+              if (id) {
+                // sanitize simple ids
+                const sanitized = id.trim();
+                addServer(sanitized, sanitized.slice(0, 6), sanitized.startsWith("dm--") ? "dm" : "server");
+                navigateToServer(sanitized);
+              }
+            }}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              marginTop: 6,
+              background: "#ffffff",
+              border: "1px solid #eef3fb",
+              cursor: "pointer",
+            }}
+            title="Add server"
+          >
+            +
+          </button>
         </div>
       </nav>
 
@@ -444,12 +584,14 @@ function AppInner() {
           </div>
           <div>
             <div style={styles(theme).headerTitle}>ClassConnect</div>
-            <div style={{ color: styles(theme).muted, fontSize: 13 }}>Room: <span style={{ fontWeight: 700 }}>{roomId}</span></div>
+            <div style={{ color: styles(theme).muted, fontSize: 13 }}>
+              Room: <span style={{ fontWeight: 700 }}>{roomId}</span>
+            </div>
           </div>
         </div>
 
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          <div style={{ color: styles(theme).muted, fontSize: 13 }}>{participants.filter(p => p.status === "online").length} online</div>
+          <div style={{ color: styles(theme).muted, fontSize: 13 }}>{participants.filter((p) => p.status === "online").length} online</div>
           <div style={{ width: 1, height: 24, background: styles(theme).muted, opacity: 0.12 }} />
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <input
@@ -541,13 +683,6 @@ function AppInner() {
                   ...styles(theme).participantRow,
                   justifyContent: "space-between",
                 }}
-                onClick={() => {
-                  const el = inputRef.current;
-                  if (el) {
-                    el.focus();
-                    el.value = `@${p.user} `;
-                  }
-                }}
               >
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <div style={styles(theme).avatar}>{initialsFromName(p.user)}</div>
@@ -556,7 +691,31 @@ function AppInner() {
                     <div style={{ fontSize: 12, color: styles(theme).muted }}>{p.lastSeen ? new Date(p.lastSeen).toLocaleString() : p.status}</div>
                   </div>
                 </div>
+
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button
+                    onClick={() => {
+                      // mention in input
+                      const el = inputRef.current;
+                      if (el) {
+                        el.focus();
+                        el.value = `@${p.user} `;
+                      }
+                    }}
+                    style={{ padding: "6px 8px", borderRadius: 6, cursor: "pointer" }}
+                    title="Mention"
+                  >
+                    @
+                  </button>
+
+                  <button
+                    onClick={() => startDMWith(p)}
+                    style={{ padding: "6px 8px", borderRadius: 6, cursor: "pointer" }}
+                    title="Start DM"
+                  >
+                    DM
+                  </button>
+
                   <div style={styles(theme).presenceDot(p.status)} />
                 </div>
               </div>
@@ -565,7 +724,7 @@ function AppInner() {
         </div>
 
         <div style={{ marginTop: 16, color: styles(theme).muted, fontSize: 13 }}>
-          Tip: Click a participant to mention them. Name is saved locally.
+          Tip: Click a participant to mention them or start a DM. Servers and DMs are saved locally.
         </div>
       </aside>
     </div>
